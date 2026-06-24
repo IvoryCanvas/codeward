@@ -34,14 +34,29 @@ CodeWard는 유지보수자에게 첫 번째 방어선을 제공합니다.
 ## 설치
 
 ```sh
-npm install -D @ivorycanvas/codeward
+pnpm add -D @ivorycanvas/codeward
 ```
 
 설치 없이 실행할 수도 있습니다.
 
 ```sh
+pnpm dlx @ivorycanvas/codeward scan .
+```
+
+<details>
+<summary>npm / Yarn</summary>
+
+```sh
+npm install -D @ivorycanvas/codeward
 npx @ivorycanvas/codeward scan .
 ```
+
+```sh
+yarn add -D @ivorycanvas/codeward
+yarn dlx @ivorycanvas/codeward scan .
+```
+
+</details>
 
 ## 사용법
 
@@ -111,11 +126,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - run: npm ci
-      - run: npx @ivorycanvas/codeward scan . --fail-on high
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dlx @ivorycanvas/codeward scan . --fail-on high
 ```
 
 ## 철학
@@ -150,13 +169,13 @@ CodeWard gives maintainers a simple first line of defense:
 ## Install
 
 ```sh
-npm install -D @ivorycanvas/codeward
+pnpm add -D @ivorycanvas/codeward
 ```
 
 Run it without installing:
 
 ```sh
-npx @ivorycanvas/codeward scan .
+pnpm dlx @ivorycanvas/codeward scan .
 ```
 
 ## Usage
@@ -227,11 +246,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - run: npm ci
-      - run: npx @ivorycanvas/codeward scan . --fail-on high
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dlx @ivorycanvas/codeward scan . --fail-on high
 ```
 
 ## Philosophy

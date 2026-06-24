@@ -19,8 +19,8 @@ CodeWard is maintained by IvoryCanvas.
 Releases are prepared by maintainers. Before publishing a package, maintainers should run:
 
 ```sh
-npm test
-npm run scan
+pnpm test
+pnpm scan
 ```
 
 ## Security

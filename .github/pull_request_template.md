@@ -2,8 +2,7 @@
 
 ## Validation
 
-- [ ] `npm test`
-- [ ] `npm run scan`
+- [ ] `pnpm test`
+- [ ] `pnpm scan`
 
 ## Notes for Maintainers
-

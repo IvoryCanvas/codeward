@@ -5,16 +5,16 @@ Thanks for helping improve CodeWard.
 ## Development
 
 ```sh
-npm install
-npm test
+pnpm install
+pnpm test
 ```
 
 Useful commands:
 
 ```sh
-npm run build
-npm run scan
-npm run report
+pnpm build
+pnpm scan
+pnpm report
 ```
 
 ## Pull Requests

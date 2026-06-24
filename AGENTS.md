@@ -11,8 +11,8 @@ These instructions apply to the whole repository.
 
 ## Validation
 
-- Run `npm test` before proposing a merge.
-- Run `npm run scan` when changing scanner behavior, security rules, or repository policy docs.
+- Run `pnpm test` before proposing a merge.
+- Run `pnpm scan` when changing scanner behavior, security rules, or repository policy docs.
 
 ## Repository Boundaries
 
