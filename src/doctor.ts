@@ -48,10 +48,10 @@ const areaDefinitions: AreaDefinition[] = [
     reviewMessage: "Agent guidance needs attention before broad agent use.",
   },
   {
-    name: "MCP configuration",
-    ruleIds: ["CW004", "CW005"],
-    okMessage: "No risky committed MCP configuration was detected.",
-    reviewMessage: "MCP configuration should be reviewed before agent sessions.",
+    name: "MCP and agent settings",
+    ruleIds: ["CW004", "CW005", "CW012"],
+    okMessage: "No risky committed MCP configuration or agent settings were detected.",
+    reviewMessage: "MCP configuration or agent settings should be reviewed before agent sessions.",
   },
   {
     name: "Validation",

@@ -130,6 +130,103 @@ test("scanProject uses workspace root guardrails for package scans", async () =>
   assert.ok(ids.includes("CW008"));
 });
 
+test("scanProject recognizes modern agent instruction surfaces", async () => {
+  const root = await makeTempRepo();
+  await mkdir(path.join(root, ".github/instructions"), { recursive: true });
+  await mkdir(path.join(root, ".claude/rules"), { recursive: true });
+  await mkdir(path.join(root, ".github/workflows"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "node --test",
+      },
+    }),
+  );
+  await writeFile(
+    path.join(root, ".github/instructions/review.instructions.md"),
+    "# Review Instructions\n\nRun `npm test` before merge.\n",
+  );
+  await writeFile(path.join(root, ".claude/rules/typescript.md"), "# TypeScript\n\nPrefer small changes.\n");
+  await writeFile(path.join(root, "LICENSE"), "MIT");
+  await writeFile(path.join(root, "SECURITY.md"), "# Security\n");
+  await writeFile(path.join(root, "CONTRIBUTING.md"), "# Contributing\n");
+  await writeFile(
+    path.join(root, ".github/workflows/ci.yml"),
+    "name: CI\non: [pull_request]\npermissions:\n  contents: read\n",
+  );
+
+  const result = await scanProject(root);
+  const ids = result.findings.map((finding) => finding.id);
+
+  assert.equal(ids.includes("CW001"), false);
+});
+
+test("scanProject reports risky agent settings hooks and MCP servers", async () => {
+  const root = await makeTempRepo();
+  await mkdir(path.join(root, ".claude"), { recursive: true });
+  await mkdir(path.join(root, ".gemini"), { recursive: true });
+  await mkdir(path.join(root, ".github/workflows"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "node --test",
+      },
+    }),
+  );
+  await writeFile(path.join(root, "AGENTS.md"), "# Agent Instructions\n\n- Run npm test before merge.\n");
+  await writeFile(path.join(root, "LICENSE"), "MIT");
+  await writeFile(path.join(root, "SECURITY.md"), "# Security\n");
+  await writeFile(path.join(root, "CONTRIBUTING.md"), "# Contributing\n");
+  await writeFile(
+    path.join(root, ".github/workflows/ci.yml"),
+    "name: CI\non: [pull_request]\npermissions:\n  contents: read\n",
+  );
+  await writeFile(
+    path.join(root, ".claude/settings.json"),
+    JSON.stringify({
+      permissions: {
+        allow: ["Bash(*)", "Bash(pnpm test:*)"],
+      },
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [
+              {
+                type: "command",
+                command: "npm publish && git push",
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  await writeFile(
+    path.join(root, ".gemini/settings.json"),
+    JSON.stringify({
+      mcpServers: {
+        unsafe: {
+          command: "bash",
+          args: ["-lc", "npm publish"],
+        },
+      },
+    }),
+  );
+
+  const result = await scanProject(root);
+  const ids = result.findings.map((finding) => finding.id);
+  const hookFinding = result.findings.find((finding) => finding.id === "CW012" && finding.title.includes("hook"));
+  const benignPermissionFinding = result.findings.find((finding) => finding.evidence?.includes("pnpm test"));
+
+  assert.ok(ids.includes("CW004"));
+  assert.ok(ids.includes("CW012"));
+  assert.equal(hookFinding?.severity, "high");
+  assert.equal(benignPermissionFinding, undefined);
+});
+
 test("formatMarkdownReport includes a useful summary", async () => {
   const root = await makeTempRepo();
   const result = await scanProject(root);
@@ -268,12 +365,12 @@ test("doctor summarizes a complex risky repository by guardrail area", async () 
 
   assert.equal(doctor.status, "high-risk");
   assert.equal(doctor.areas.find((area) => area.name === "Agent instructions")?.status, "review");
-  assert.equal(doctor.areas.find((area) => area.name === "MCP configuration")?.status, "review");
+  assert.equal(doctor.areas.find((area) => area.name === "MCP and agent settings")?.status, "review");
   assert.equal(doctor.areas.find((area) => area.name === "Repository automation")?.status, "review");
   assert.ok(doctor.topPriorities.length <= 5);
   assert.match(formatted, /CodeWard Doctor/);
   assert.match(formatted, /Agent readiness: High risk/);
-  assert.match(formatted, /\[review\] MCP configuration/);
+  assert.match(formatted, /\[review\] MCP and agent settings/);
   assert.match(formatted, /Top priorities:/);
   assert.match(markdown, /# CodeWard Doctor/);
   assert.match(markdown, /## Guardrail Areas/);
