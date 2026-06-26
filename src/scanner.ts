@@ -9,11 +9,19 @@ const defaultMaxFiles = 2000;
 
 const instructionFileNames = new Set([
   "AGENTS.md",
+  "AGENTS.override.md",
   "CLAUDE.md",
+  ".claude/CLAUDE.md",
   "GEMINI.md",
   ".github/copilot-instructions.md",
   ".cursorrules",
 ]);
+
+const instructionDirectoryPatterns = [
+  { directory: ".cursor/rules", pattern: /\.(md|mdc)$/i },
+  { directory: ".claude/rules", pattern: /\.(md|mdc)$/i },
+  { directory: ".github/instructions", pattern: /\.instructions\.md$/i },
+];
 
 const mcpConfigNames = new Set([
   ".mcp.json",
@@ -22,6 +30,8 @@ const mcpConfigNames = new Set([
   ".vscode/mcp.json",
   "claude_desktop_config.json",
 ]);
+
+const agentSettingsNames = new Set([".claude/settings.json", ".claude/settings.local.json", ".gemini/settings.json"]);
 
 const secretKeyPattern = /(token|secret|password|passwd|api[_-]?key|private[_-]?key|credential)/i;
 
@@ -53,6 +63,7 @@ export async function scanProject(rootInput: string, options: ScanOptions = {}):
     ...checkInstructionConflicts(guardrailFiles),
     ...checkSuspiciousInstructionText(guardrailFiles),
     ...checkMcpConfig(guardrailFiles),
+    ...checkAgentSettings(guardrailFiles),
     ...checkPackageScripts(files),
     ...checkGitHubActions(guardrailFiles),
     ...checkCommittedEnvFiles(files),
@@ -87,6 +98,7 @@ async function collectWorkspaceGuardrailFiles(workspaceRoot: string): Promise<Pr
   const candidatePaths = [
     ...instructionFileNames,
     ...mcpConfigNames,
+    ...agentSettingsNames,
     "LICENSE",
     "SECURITY.md",
     "CONTRIBUTING.md",
@@ -99,9 +111,11 @@ async function collectWorkspaceGuardrailFiles(workspaceRoot: string): Promise<Pr
     }
   }
 
-  const cursorRuleRoot = path.join(workspaceRoot, ".cursor/rules");
-  if (await pathExists(cursorRuleRoot)) {
-    files.push(...(await collectTextFilesUnder(workspaceRoot, cursorRuleRoot, /\.(md|mdc)$/i)));
+  for (const ruleDirectory of instructionDirectoryPatterns) {
+    const instructionRoot = path.join(workspaceRoot, ruleDirectory.directory);
+    if (await pathExists(instructionRoot)) {
+      files.push(...(await collectTextFilesUnder(workspaceRoot, instructionRoot, ruleDirectory.pattern)));
+    }
   }
 
   const workflowRoot = path.join(workspaceRoot, ".github/workflows");
@@ -231,8 +245,15 @@ function getInstructionFiles(files: ProjectFile[]): ProjectFile[] {
     if (instructionFileNames.has(file.path)) {
       return true;
     }
-    return file.path.startsWith(".cursor/rules/") && /\.(md|mdc)$/i.test(file.path);
+    return instructionDirectoryPatterns.some((ruleDirectory) =>
+      matchesDirectoryPattern(file.path, ruleDirectory.directory, ruleDirectory.pattern),
+    );
   });
+}
+
+function matchesDirectoryPattern(filePath: string, directory: string, pattern: RegExp): boolean {
+  const prefix = directory.endsWith("/") ? directory : `${directory}/`;
+  return filePath.startsWith(prefix) && pattern.test(filePath);
 }
 
 function checkAgentInstructions(files: ProjectFile[]): Finding[] {
@@ -247,7 +268,7 @@ function checkAgentInstructions(files: ProjectFile[]): Finding[] {
       id: "CW001",
       title: "Missing agent instructions",
       severity: "medium",
-      message: "No AGENTS.md, CLAUDE.md, Cursor rules, or Copilot instruction file was found.",
+      message: "No AGENTS.md, Claude, Cursor, Copilot, or Gemini instruction file was found.",
       recommendation:
         "Add AGENTS.md or an equivalent agent instruction file with build, test, review, and repository boundary rules.",
     }),
@@ -380,13 +401,16 @@ function checkSuspiciousInstructionText(files: ProjectFile[]): Finding[] {
 
 function checkMcpConfig(files: ProjectFile[]): Finding[] {
   const findings: Finding[] = [];
-  const configs = files.filter((file) => mcpConfigNames.has(file.path) && file.text);
+  const configs = files.filter((file) => (mcpConfigNames.has(file.path) || agentSettingsNames.has(file.path)) && file.text);
 
   for (const config of configs) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(config.text!);
     } catch {
+      if (!mcpConfigNames.has(config.path)) {
+        continue;
+      }
       findings.push(
         finding({
           id: "CW004",
@@ -400,7 +424,43 @@ function checkMcpConfig(files: ProjectFile[]): Finding[] {
       continue;
     }
 
-    inspectMcpValue(parsed, config.path, "$", findings);
+    if (mcpConfigNames.has(config.path)) {
+      inspectMcpValue(parsed, config.path, "$", findings);
+      continue;
+    }
+
+    if (isRecord(parsed) && parsed.mcpServers) {
+      inspectMcpValue(parsed.mcpServers, config.path, "$.mcpServers", findings);
+    }
+  }
+
+  return findings;
+}
+
+function checkAgentSettings(files: ProjectFile[]): Finding[] {
+  const findings: Finding[] = [];
+  const settingsFiles = files.filter((file) => agentSettingsNames.has(file.path) && file.text);
+
+  for (const settingsFile of settingsFiles) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(settingsFile.text!);
+    } catch {
+      findings.push(
+        finding({
+          id: "CW012",
+          title: "Unreadable agent settings",
+          severity: "medium",
+          file: settingsFile.path,
+          message: "Agent settings could not be parsed as JSON.",
+          recommendation: "Fix the JSON syntax so agent hooks, permissions, and tool configuration can be inspected.",
+        }),
+      );
+      continue;
+    }
+
+    inspectAgentHooks(parsed, settingsFile.path, findings);
+    inspectAgentPermissions(parsed, settingsFile.path, findings);
   }
 
   return findings;
@@ -459,6 +519,79 @@ function inspectMcpValue(value: unknown, file: string, location: string, finding
 
   for (const [key, child] of Object.entries(record)) {
     inspectMcpValue(child, file, `${location}.${key}`, findings);
+  }
+}
+
+function inspectAgentHooks(value: unknown, file: string, findings: Finding[]): void {
+  if (!isRecord(value) || !value.hooks) {
+    return;
+  }
+
+  inspectHookValue(value.hooks, file, "$.hooks", findings);
+}
+
+function inspectHookValue(value: unknown, file: string, location: string, findings: Finding[]): void {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => inspectHookValue(item, file, `${location}[${index}]`, findings));
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.command === "string") {
+    const risk = classifyHookRisk(record.command);
+    if (risk) {
+      findings.push(
+        finding({
+          id: "CW012",
+          title: "Risky agent hook command",
+          severity: risk.severity,
+          file,
+          message: risk.message,
+          recommendation:
+            "Keep agent hooks narrow, auditable, and non-destructive; avoid hooks that publish, push, merge, remove files, or exfiltrate secrets.",
+          evidence: `${location}.command=${redact(record.command)}`,
+        }),
+      );
+    }
+  }
+
+  for (const [key, child] of Object.entries(record)) {
+    inspectHookValue(child, file, `${location}.${key}`, findings);
+  }
+}
+
+function inspectAgentPermissions(value: unknown, file: string, findings: Finding[]): void {
+  if (!isRecord(value) || !isRecord(value.permissions)) {
+    return;
+  }
+
+  const allowList = value.permissions.allow;
+  if (!Array.isArray(allowList)) {
+    return;
+  }
+
+  for (const [index, item] of allowList.entries()) {
+    const risk = typeof item === "string" ? classifyShellPermission(item) : undefined;
+    if (!risk) {
+      continue;
+    }
+
+    findings.push(
+      finding({
+        id: "CW012",
+        title: risk.title,
+        severity: risk.severity,
+        file,
+        message: risk.message,
+        recommendation:
+          "Replace broad Bash allow rules with specific, read-only commands and keep destructive operations behind explicit maintainer review.",
+        evidence: `$.permissions.allow[${index}]=${redact(item)}`,
+      }),
+    );
   }
 }
 
@@ -595,6 +728,66 @@ function classifyScriptRisk(script: string): { severity: Severity; message: stri
   return undefined;
 }
 
+function classifyHookRisk(command: string): { severity: Severity; message: string } | undefined {
+  const scriptRisk = classifyScriptRisk(command);
+  if (scriptRisk) {
+    return {
+      severity: scriptRisk.severity,
+      message: `Agent hook ${scriptRisk.message}`,
+    };
+  }
+
+  if (/\b(?:sudo|chmod\s+777)\b/i.test(command)) {
+    return { severity: "high", message: "Agent hook contains a privileged or broad permission command." };
+  }
+
+  if (/\b(?:curl|wget|nc|ncat|scp|rsync)\b.{0,120}\b(?:secret|token|credential|private[_-]?key|\.env)\b/i.test(command)) {
+    return { severity: "high", message: "Agent hook appears able to exfiltrate secrets or local environment data." };
+  }
+
+  if (/\b(?:cat|printenv|env)\b.{0,80}\b(?:secret|token|credential|private[_-]?key|\.env)\b/i.test(command)) {
+    return { severity: "high", message: "Agent hook appears to print or expose secret-like data." };
+  }
+
+  return undefined;
+}
+
+function classifyShellPermission(
+  value: string,
+): { title: string; severity: Severity; message: string } | undefined {
+  const match = value.match(/^Bash\((.*)\)$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const commandPattern = match[1].trim();
+  if (commandPattern === "*") {
+    return {
+      title: "Broad agent shell permission",
+      severity: "medium",
+      message: "Agent settings allow any Bash command.",
+    };
+  }
+
+  if (classifyScriptRisk(commandPattern)) {
+    return {
+      title: "Risky agent shell permission",
+      severity: "high",
+      message: "Agent settings allow risky publish, push, merge, destructive, or pipe-to-shell command patterns.",
+    };
+  }
+
+  if (/\b(?:sudo|chmod\s+777)\b/i.test(commandPattern)) {
+    return {
+      title: "Risky agent shell permission",
+      severity: "high",
+      message: "Agent settings allow privileged or broad permission command patterns.",
+    };
+  }
+
+  return undefined;
+}
+
 function checkGitHubActions(files: ProjectFile[]): Finding[] {
   const workflowFiles = getFilesUnder(files, ".github/workflows").filter((file) => /\.(ya?ml)$/i.test(file.path));
 
@@ -704,11 +897,20 @@ function redact(value: string): string {
     .slice(0, 180);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export async function hasAgentInstructions(root: string): Promise<boolean> {
   for (const fileName of instructionFileNames) {
     if (await pathExists(path.join(root, fileName))) {
       return true;
     }
   }
-  return pathExists(path.join(root, ".cursor/rules"));
+  for (const ruleDirectory of instructionDirectoryPatterns) {
+    if (await pathExists(path.join(root, ruleDirectory.directory))) {
+      return true;
+    }
+  }
+  return false;
 }

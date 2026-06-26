@@ -5,7 +5,7 @@
 
 **Repo-level preflight checks before AI coding agents touch your code.**
 
-CodeWard scans the repository surface that AI coding agents rely on: agent instructions, MCP configuration, local environment files, package scripts, GitHub Actions permissions, community health files, and validation signals.
+CodeWard scans the repository surface that AI coding agents rely on: agent instructions, MCP configuration, agent settings and hooks, local environment files, package scripts, GitHub Actions permissions, community health files, and validation signals.
 
 It is built for teams using Codex, Claude Code, Cursor, GitHub Copilot coding agent, MCP-powered tools, or any workflow where an agent can read, edit, test, commit, or open pull requests.
 
@@ -35,6 +35,7 @@ CodeWard gives maintainers a quick first line of defense:
 
 - Is there clear guidance for agents?
 - Are MCP configs safe enough to inspect?
+- Are committed agent settings or hooks able to run risky commands?
 - Did a local `.env` file slip into the repo?
 - Can package scripts publish, push, merge, or run risky shell pipelines?
 - Are workflows using broad permissions or risky triggers?
@@ -136,8 +137,10 @@ The first release focuses on high-signal checks that are useful across many repo
 | `CW009` | high | Package scripts that can publish, push, merge, or run unsafe shell pipelines. |
 | `CW010` | medium | Broad workflow permissions or risky workflow triggers. |
 | `CW011` | low | Missing community health files. |
+| `CW012` | medium/high | Risky committed agent settings, hooks, or broad shell permissions. |
 
 See [docs/rules.md](docs/rules.md) for the rule catalog.
+See [docs/ecosystem.md](docs/ecosystem.md) for the agent ecosystem surfaces CodeWard tracks.
 
 ## Configuration
 
@@ -209,7 +212,7 @@ Near-term priorities:
 - publish the first npm package
 - add a GitHub Action wrapper with PR annotations
 - improve branch-aware `review` annotations for GitHub PR comments
-- expand agent instruction detection across Codex, Claude Code, Cursor, Copilot, Gemini, and related surfaces
+- continue expanding agent surface detection across Codex, Claude Code, Cursor, Copilot, Gemini, and related tools
 - generate rule documentation from scanner metadata
 
 See [docs/roadmap.md](docs/roadmap.md) for more detail.
