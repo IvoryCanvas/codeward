@@ -62,6 +62,8 @@ export type {
   E2eEntrypoint,
   E2eEntrypointConfidence,
   E2eEntrypointKind,
+  E2eFixtureReadiness,
+  E2eFixtureReadinessStatus,
   E2eFlow,
   E2eSelector,
   E2eSelectorKind,

@@ -828,6 +828,68 @@ test("generateE2ePlan suggests setup hints for auth and session changes", async 
   assert.match(formatMarkdownE2ePlan(plan), /Authenticated session setup/);
 });
 
+test("generateE2ePlan flags missing mock fixtures for API-dependent UI flows", async () => {
+  const root = await makeTempRepo();
+  await initGitRepo(root);
+  await mkdir(path.join(root, "src/pages/orders"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "playwright test",
+      },
+      dependencies: {
+        "@playwright/test": "^1.56.0",
+        "react-dom": "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(
+    path.join(root, "src/pages/orders/OrderSummaryPage.tsx"),
+    "export function OrderSummaryPage() { return <button>Open order</button>; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/order-summary-api"]);
+  await writeFile(
+    path.join(root, "src/pages/orders/OrderSummaryPage.tsx"),
+    [
+      "export async function loadOrder() {",
+      "  const response = await fetch('/api/orders/fixture-order-id');",
+      "  return response.json();",
+      "}",
+      "export function OrderSummaryPage() { return <button data-testid=\"open-order\">Open order</button>; }",
+    ].join("\n"),
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "load order summary"]);
+
+  const plan = await generateE2ePlan(root, { base: "main", head: "HEAD", runner: "playwright" });
+  const markdown = formatMarkdownE2ePlan(plan);
+  const flow = plan.flows.find((item) => item.fixtureReadiness.status === "missing");
+
+  assert.ok(flow);
+  assert.equal(flow.fixtureReadiness.status, "missing");
+  assert.ok(flow.fixtureReadiness.apiSignals.includes("src/pages/orders/OrderSummaryPage.tsx"));
+  assert.match(markdown, /Fixture\/mock readiness/);
+  assert.match(markdown, /no changed backend, mock, or fixture evidence was detected/);
+
+  const draft = await generateE2eDraft(root, {
+    base: "main",
+    head: "HEAD",
+    output: "tests/e2e",
+    runner: "playwright",
+  });
+  const draftFile = draft.files.find((file) => file.fixtureReadinessStatus === "missing");
+  assert.ok(draftFile);
+  assert.equal(draftFile.fixtureReadinessStatus, "missing");
+  const spec = await readFile(path.join(root, draftFile.path), "utf8");
+  assert.match(spec, /Fixture\/mock readiness/);
+  assert.match(spec, /Add a deterministic mock or fixture response/);
+});
+
 test("generateE2eDraft uses web selectors in Playwright specs", async () => {
   const root = await makeTempRepo();
   await initGitRepo(root);

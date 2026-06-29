@@ -91,6 +91,13 @@ export interface E2ePlanHistorySnapshot {
         files: string[];
         reason: string;
       }>;
+      fixtureReadiness: {
+        status: string;
+        reason: string;
+        apiSignals: string[];
+        backendSignals: string[];
+        mockSignals: string[];
+      };
       missingTestabilityCount: number;
     }>;
   };
@@ -102,6 +109,11 @@ export interface E2ePlanHistorySnapshot {
     domainTerms: number;
     coverageEvidence: {
       covered: number;
+      partial: number;
+      missing: number;
+    };
+    fixtureReadiness: {
+      ready: number;
       partial: number;
       missing: number;
     };
@@ -228,6 +240,13 @@ function buildE2ePlanHistorySnapshot(historyRoot: string, plan: E2ePlanResult): 
           files: evidence.files.slice(0, 5),
           reason: evidence.reason,
         })),
+        fixtureReadiness: {
+          status: flow.fixtureReadiness.status,
+          reason: flow.fixtureReadiness.reason,
+          apiSignals: flow.fixtureReadiness.apiSignals.slice(0, 5),
+          backendSignals: flow.fixtureReadiness.backendSignals.slice(0, 5),
+          mockSignals: flow.fixtureReadiness.mockSignals.slice(0, 5),
+        },
         missingTestabilityCount: flow.missingTestability.length,
       })),
     },
@@ -241,6 +260,11 @@ function buildE2ePlanHistorySnapshot(historyRoot: string, plan: E2ePlanResult): 
         covered: coverageEvidence.filter((evidence) => evidence.status === "covered").length,
         partial: coverageEvidence.filter((evidence) => evidence.status === "partial").length,
         missing: coverageEvidence.filter((evidence) => evidence.status === "missing").length,
+      },
+      fixtureReadiness: {
+        ready: plan.flows.filter((flow) => flow.fixtureReadiness.status === "ready").length,
+        partial: plan.flows.filter((flow) => flow.fixtureReadiness.status === "partial").length,
+        missing: plan.flows.filter((flow) => flow.fixtureReadiness.status === "missing").length,
       },
       missingTestability: plan.missingTestability.length,
     },

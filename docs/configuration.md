@@ -173,3 +173,14 @@ Supported match fields:
 The goal is to help reviewers and test authors use the product words the team already understands. For example, a service or component path can become `In App Purchase primary journey` instead of a generic implementation phrase such as "API smoke flow".
 
 High-confidence terms usually come from committed core flows or domain manifests. Medium-confidence terms usually come from changed paths. Low-confidence terms can come from UI copy and should be treated as naming hints, not final policy.
+
+## Fixture And Mock Readiness
+
+`codeward e2e plan` checks whether a candidate flow appears to depend on API, network, payment, or external response data. When it does, CodeWard looks for changed backend/API evidence and mock or fixture evidence such as:
+
+- MSW or Mirage handlers
+- `__mocks__`, `fixtures`, `factories`, `seeds`, or `test-data` directories
+- Playwright route fulfillment helpers
+- mock data files that match the changed domain
+
+If a client flow calls an API but the branch does not include backend, mock, or fixture evidence, the E2E plan marks fixture readiness as `missing` and the generated draft includes next actions for deterministic success and failure responses. This lets teams validate UI and flow behavior before the real server implementation is complete.
