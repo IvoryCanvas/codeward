@@ -23,6 +23,8 @@ import {
   generateAgentContext,
   generateE2eDraft,
   generateE2ePlan,
+  generateDomainManifestSuggestion,
+  generateFlowManifestSuggestion,
   generateTestPlan,
   initializeLocalHistory,
   loadConfig,
@@ -965,8 +967,8 @@ test("generateE2ePlan builds a bootstrap plan for projects without tests", async
   assert.ok(plan.bootstrap.steps.some((step) => step.category === "testability" && step.status === "required"));
   assert.ok(plan.bootstrap.steps.some((step) => step.category === "domain-language" && step.status === "recommended"));
   assert.ok(plan.bootstrap.steps.some((step) => step.category === "core-flow" && step.status === "recommended"));
-  assert.ok(plan.bootstrap.steps.some((step) => step.commands.includes("codeward domains init .")));
-  assert.ok(plan.bootstrap.steps.some((step) => step.commands.includes("codeward flows init .")));
+  assert.ok(plan.bootstrap.steps.some((step) => step.commands.includes("codeward domains suggest . --base main --head HEAD")));
+  assert.ok(plan.bootstrap.steps.some((step) => step.commands.includes("codeward flows suggest . --base main --head HEAD")));
   assert.match(plan.bootstrap.summary, /required bootstrap step/);
   assert.match(markdown, /## Bootstrap Plan/);
   assert.match(markdown, /Create the first changed-flow E2E draft/);
@@ -2015,6 +2017,16 @@ test("domains and flows suggest changed-file manifests for package scopes", asyn
     ".codeward/domains.suggested.yml",
   ]);
   const writtenManifest = await readFile(path.join(workspaceRoot, ".codeward/domains.suggested.yml"), "utf8");
+  const domainSuggestion = await generateDomainManifestSuggestion(packageRoot, {
+    workspaceRoot,
+    base: "main",
+    head: "HEAD",
+  });
+  const flowSuggestion = await generateFlowManifestSuggestion(packageRoot, {
+    workspaceRoot,
+    base: "main",
+    head: "HEAD",
+  });
 
   assert.match(domainOutput.stdout, /domains:/);
   assert.match(domainOutput.stdout, /id: offer/);
@@ -2031,6 +2043,14 @@ test("domains and flows suggest changed-file manifests for package scopes", asyn
   assert.match(writeOutput.stdout, /Wrote /);
   assert.match(writtenManifest, /domains:/);
   assert.match(writtenManifest, /services\/offer\/src\/pages\/offer\/\*\*/);
+  assert.equal(domainSuggestion.promotionPlan.counts.commitCandidate, 1);
+  assert.equal(domainSuggestion.promotionPlan.candidates[0].status, "commit-candidate");
+  assert.equal(domainSuggestion.promotionPlan.candidates[0].id, "offer");
+  assert.match(domainSuggestion.promotionPlan.candidates[0].action, /\.codeward\/domains\.yml/);
+  assert.equal(flowSuggestion.promotionPlan.counts.commitCandidate, 1);
+  assert.equal(flowSuggestion.promotionPlan.candidates[0].status, "commit-candidate");
+  assert.equal(flowSuggestion.promotionPlan.candidates[0].id, "offer-primary-journey");
+  assert.match(flowSuggestion.promotionPlan.candidates[0].action, /\.codeward\/flows\.yml/);
 });
 
 test("configured validation commands feed test-plan and eval outputs", async () => {

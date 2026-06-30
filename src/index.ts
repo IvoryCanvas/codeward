@@ -106,7 +106,14 @@ export type {
 } from "./flows.js";
 export type { GitHubActionMode, GitHubActionOptions, GitHubActionResult } from "./github.js";
 export type { E2ePlanHistorySnapshot, LocalHistoryInitResult, LocalHistoryReference } from "./history.js";
-export type { DomainManifestSuggestionResult, FlowManifestSuggestionResult, ManifestSuggestionOptions } from "./manifest-suggestions.js";
+export type {
+  DomainManifestSuggestionResult,
+  FlowManifestSuggestionResult,
+  ManifestPromotionCandidate,
+  ManifestPromotionPlan,
+  ManifestPromotionStatus,
+  ManifestSuggestionOptions,
+} from "./manifest-suggestions.js";
 export type { ChangedFile, ChangedRiskyFinding, ReviewOptions, ReviewResult } from "./review.js";
 export type { TestPlanChangedFile, TestPlanItem, TestPlanOptions, TestPlanResult } from "./test-plan.js";
 export type { CodeWardConfig, Finding, ScanCounts, ScanOptions, ScanResult, Severity } from "./types.js";
