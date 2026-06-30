@@ -421,6 +421,87 @@ test("generateTestPlan scopes monorepo changes to the requested package", async 
   assert.match(localMarkdown, /Includes working tree changes: yes/);
 });
 
+test("generateE2ePlan surfaces package-scoped targets for monorepo root changes", async () => {
+  const root = await makeTempRepo();
+  const mobileRoot = path.join(root, "apps/mobile");
+  const offerRoot = path.join(root, "services/offer");
+  await initGitRepo(root);
+  await mkdir(path.join(mobileRoot, "src/screens/home"), { recursive: true });
+  await mkdir(path.join(offerRoot, "src/features/campaign"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      private: true,
+      packageManager: "pnpm@10.32.1",
+      workspaces: ["apps/*", "services/*"],
+    }),
+  );
+  await writeFile(
+    path.join(mobileRoot, "package.json"),
+    JSON.stringify({
+      name: "@fixture/mobile",
+      dependencies: {
+        expo: "^54.0.0",
+        "react-native": "^0.81.0",
+      },
+    }),
+  );
+  await writeFile(path.join(mobileRoot, "app.json"), JSON.stringify({ expo: { name: "Fixture" } }));
+  await writeFile(
+    path.join(offerRoot, "package.json"),
+    JSON.stringify({
+      name: "@fixture/offer",
+      dependencies: {
+        next: "^15.0.0",
+        "react-dom": "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(path.join(offerRoot, "next.config.mjs"), "export default {};\n");
+  await writeFile(path.join(mobileRoot, "src/screens/home/HomeScreen.tsx"), "export function HomeScreen() { return null; }\n");
+  await writeFile(
+    path.join(offerRoot, "src/features/campaign/CampaignView.tsx"),
+    "export function CampaignView() { return null; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/workspace-targets"]);
+  await writeFile(
+    path.join(mobileRoot, "src/screens/home/HomeScreen.tsx"),
+    "export function HomeScreen() { return <Text>Home</Text>; }\n",
+  );
+  await writeFile(
+    path.join(offerRoot, "src/features/campaign/CampaignView.tsx"),
+    "export function CampaignView() { return <main>Campaign</main>; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "update workspace targets"]);
+
+  const plan = await generateE2ePlan(root, { base: "main", head: "HEAD" });
+  const markdown = formatMarkdownE2ePlan(plan);
+  const mobileTarget = plan.workspaceTargets.find((target) => target.path === "apps/mobile");
+  const offerTarget = plan.workspaceTargets.find((target) => target.path === "services/offer");
+
+  assert.equal(plan.project.type, "unknown");
+  assert.equal(plan.workspaceTargets.length, 2);
+  assert.ok(mobileTarget);
+  assert.equal(mobileTarget.packageName, "@fixture/mobile");
+  assert.equal(mobileTarget.project.type, "expo-react-native");
+  assert.equal(mobileTarget.recommendedRunner.name, "maestro");
+  assert.match(mobileTarget.suggestedCommand, /codeward e2e plan apps\/mobile --workspace-root \. --base main --head HEAD/);
+  assert.ok(offerTarget);
+  assert.equal(offerTarget.packageName, "@fixture/offer");
+  assert.equal(offerTarget.project.type, "web");
+  assert.equal(offerTarget.recommendedRunner.name, "playwright");
+  assert.match(offerTarget.suggestedCommand, /codeward e2e plan services\/offer --workspace-root \. --base main --head HEAD/);
+  assert.ok(plan.bootstrap.steps.some((step) => step.title === "Run package-scoped E2E plans for changed targets"));
+  assert.match(markdown, /Changed App\/Package Targets/);
+  assert.match(markdown, /services\/offer/);
+  assert.match(markdown, /apps\/mobile/);
+});
+
 test("generateE2ePlan recommends mobile flows for Expo changes", async () => {
   const root = await makeTempRepo();
   await initGitRepo(root);

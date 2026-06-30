@@ -125,6 +125,22 @@ Action summary:
 
 ## Monorepo Package
 
+When run at the workspace root, CodeWard should identify changed package targets before asking the maintainer to choose a final runner:
+
+```sh
+codeward e2e plan . --base main --head HEAD
+```
+
+Expected root-level behavior:
+
+```txt
+Changed App/Package Targets
+
+| Target | Package | Project | Runner | Scoped Command |
+| services/offer | offer | Web | Playwright | codeward e2e plan services/offer --workspace-root . --base main --head HEAD |
+| apps/mobile | @acme/mobile | Expo / React Native | Maestro | codeward e2e plan apps/mobile --workspace-root . --base main --head HEAD |
+```
+
 For package scans, CodeWard should use workspace policy without leaking workspace-root paths into package-local drafts:
 
 ```sh
