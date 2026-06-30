@@ -85,6 +85,7 @@ codeward domains suggest . --base origin/main --head HEAD
 ```
 
 `.codeward/domains.yml` is meant to be committed when the team wants CodeWard to use shared product language during E2E planning.
+The `suggest` command prints candidate YAML plus a promotion plan that separates `commit-candidate`, `needs-review`, and `low-signal` entries.
 
 ```yaml
 domains:
@@ -131,6 +132,7 @@ codeward flows suggest . --base origin/main --head HEAD
 ```
 
 `.codeward/flows.yml` is meant to be committed when the team wants CodeWard to understand project-specific flows during E2E planning.
+The `suggest` command prints candidate YAML plus a promotion plan that helps teams decide which flows are durable enough to commit.
 
 ```yaml
 flows:

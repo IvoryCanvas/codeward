@@ -12,6 +12,28 @@ import type { CoreFlowDefinition, CoreFlowPriority } from "./flows.js";
 
 export interface ManifestSuggestionOptions extends E2ePlanOptions {}
 
+export type ManifestPromotionStatus = "commit-candidate" | "needs-review" | "low-signal";
+
+export interface ManifestPromotionCandidate {
+  id: string;
+  name: string;
+  status: ManifestPromotionStatus;
+  reason: string;
+  action: string;
+  files: string[];
+  routes: string[];
+}
+
+export interface ManifestPromotionPlan {
+  summary: string;
+  candidates: ManifestPromotionCandidate[];
+  counts: {
+    commitCandidate: number;
+    needsReview: number;
+    lowSignal: number;
+  };
+}
+
 export interface DomainManifestSuggestionResult {
   tool: {
     name: string;
@@ -27,6 +49,7 @@ export interface DomainManifestSuggestionResult {
   includeWorkingTree: boolean;
   changedFiles: string[];
   domains: DomainDefinition[];
+  promotionPlan: ManifestPromotionPlan;
   yaml: string;
 }
 
@@ -45,6 +68,7 @@ export interface FlowManifestSuggestionResult {
   includeWorkingTree: boolean;
   changedFiles: string[];
   flows: CoreFlowDefinition[];
+  promotionPlan: ManifestPromotionPlan;
   yaml: string;
 }
 
@@ -54,6 +78,7 @@ export async function generateDomainManifestSuggestion(
 ): Promise<DomainManifestSuggestionResult> {
   const plan = await generateE2ePlan(rootInput, options);
   const domains = buildSuggestedDomains(plan);
+  const promotionPlan = buildDomainPromotionPlan(domains);
   return {
     tool: {
       name: TOOL_NAME,
@@ -69,6 +94,7 @@ export async function generateDomainManifestSuggestion(
     includeWorkingTree: plan.includeWorkingTree,
     changedFiles: plan.changedFiles.map((file) => manifestRelativeFile(plan, file.path)),
     domains,
+    promotionPlan,
     yaml: formatSuggestedDomainManifestYaml(domains),
   };
 }
@@ -80,6 +106,7 @@ export async function generateFlowManifestSuggestion(
   const plan = await generateE2ePlan(rootInput, options);
   const domains = buildSuggestedDomains(plan);
   const flows = buildSuggestedFlows(plan, domains);
+  const promotionPlan = buildFlowPromotionPlan(flows);
   return {
     tool: {
       name: TOOL_NAME,
@@ -95,6 +122,7 @@ export async function generateFlowManifestSuggestion(
     includeWorkingTree: plan.includeWorkingTree,
     changedFiles: plan.changedFiles.map((file) => manifestRelativeFile(plan, file.path)),
     flows,
+    promotionPlan,
     yaml: formatSuggestedFlowManifestYaml(flows),
   };
 }
@@ -105,6 +133,7 @@ export function formatDomainManifestSuggestion(result: DomainManifestSuggestionR
   }
   if (format === "markdown") {
     const lines = manifestSuggestionHeader("Domain Manifest Suggestion", result);
+    appendPromotionPlan(lines, result.promotionPlan);
     lines.push("## Suggested Domains");
     lines.push("");
     if (result.domains.length === 0) {
@@ -133,6 +162,7 @@ export function formatFlowManifestSuggestion(result: FlowManifestSuggestionResul
   }
   if (format === "markdown") {
     const lines = manifestSuggestionHeader("Core Flow Manifest Suggestion", result);
+    appendPromotionPlan(lines, result.promotionPlan);
     lines.push("## Suggested Flows");
     lines.push("");
     if (result.flows.length === 0) {
@@ -280,6 +310,165 @@ function buildSuggestedFlows(plan: E2ePlanResult, domains: DomainDefinition[]): 
   }
 
   return dedupeFlows(flows).slice(0, 8);
+}
+
+function buildDomainPromotionPlan(domains: DomainDefinition[]): ManifestPromotionPlan {
+  const candidates = domains.map((domain) => {
+    const status = domainPromotionStatus(domain);
+    return {
+      id: domain.id,
+      name: domain.name,
+      status,
+      reason: domainPromotionReason(domain, status),
+      action: domainPromotionAction(status),
+      files: domain.files,
+      routes: domain.routes,
+    };
+  });
+  return buildPromotionPlan(candidates);
+}
+
+function buildFlowPromotionPlan(flows: CoreFlowDefinition[]): ManifestPromotionPlan {
+  const candidates = flows.map((flow) => {
+    const status = flowPromotionStatus(flow);
+    return {
+      id: flow.id,
+      name: flow.name,
+      status,
+      reason: flowPromotionReason(flow, status),
+      action: flowPromotionAction(status),
+      files: flow.files,
+      routes: flow.routes,
+    };
+  });
+  return buildPromotionPlan(candidates);
+}
+
+function buildPromotionPlan(candidates: ManifestPromotionCandidate[]): ManifestPromotionPlan {
+  const sortedCandidates = [...candidates].sort(comparePromotionCandidates);
+  const counts = {
+    commitCandidate: sortedCandidates.filter((candidate) => candidate.status === "commit-candidate").length,
+    needsReview: sortedCandidates.filter((candidate) => candidate.status === "needs-review").length,
+    lowSignal: sortedCandidates.filter((candidate) => candidate.status === "low-signal").length,
+  };
+  return {
+    summary: promotionSummary(counts),
+    candidates: sortedCandidates,
+    counts,
+  };
+}
+
+function domainPromotionStatus(domain: DomainDefinition): ManifestPromotionStatus {
+  const hasScenarioChecks = domain.scenarios.some((scenario) => scenario.checks.length >= 3);
+  if (domain.routes.length > 0 && hasScenarioChecks) {
+    return "commit-candidate";
+  }
+  if (domain.files.length > 0 && domain.scenarios.length > 0) {
+    return "needs-review";
+  }
+  return "low-signal";
+}
+
+function flowPromotionStatus(flow: CoreFlowDefinition): ManifestPromotionStatus {
+  if ((flow.priority === "critical" || flow.routes.length > 0) && flow.domains.length > 0 && flow.checks.length >= 3) {
+    return "commit-candidate";
+  }
+  if (flow.files.length > 0 && flow.checks.length >= 2) {
+    return "needs-review";
+  }
+  return "low-signal";
+}
+
+function domainPromotionReason(domain: DomainDefinition, status: ManifestPromotionStatus): string {
+  if (status === "commit-candidate") {
+    return "The candidate has route evidence plus scenario checks, so it is close to commit-ready if the name matches team language.";
+  }
+  if (status === "needs-review") {
+    return "The candidate has file and scenario evidence, but routes or stronger checks should be reviewed before committing.";
+  }
+  return "The candidate is mostly path-derived and should stay as an exploration note until the team confirms the language.";
+}
+
+function flowPromotionReason(flow: CoreFlowDefinition, status: ManifestPromotionStatus): string {
+  if (status === "commit-candidate") {
+    return "The candidate has domains, route or criticality evidence, and multiple checks, so it can be reviewed as team policy.";
+  }
+  if (status === "needs-review") {
+    return "The candidate has changed-file evidence and checks, but needs human confirmation of priority, domains, or routes.";
+  }
+  return "The candidate is low-signal and should not be committed until it is tied to a real user journey.";
+}
+
+function domainPromotionAction(status: ManifestPromotionStatus): string {
+  if (status === "commit-candidate") {
+    return "Review the name with the team, remove the suggested tag if accepted, then commit it to .codeward/domains.yml.";
+  }
+  if (status === "needs-review") {
+    return "Add aliases, routes, or better scenario checks before committing this domain.";
+  }
+  return "Keep this out of shared policy until repeated PRs prove the term is durable.";
+}
+
+function flowPromotionAction(status: ManifestPromotionStatus): string {
+  if (status === "commit-candidate") {
+    return "Confirm this is a durable journey, adjust priority if needed, then commit it to .codeward/flows.yml.";
+  }
+  if (status === "needs-review") {
+    return "Confirm owner, route, priority, and failure-path checks before committing this flow.";
+  }
+  return "Keep this as a temporary note until the journey is tied to a stable product flow.";
+}
+
+function promotionSummary(counts: ManifestPromotionPlan["counts"]): string {
+  if (counts.commitCandidate > 0) {
+    return `${counts.commitCandidate} candidate${counts.commitCandidate === 1 ? "" : "s"} look close enough to review for shared policy.`;
+  }
+  if (counts.needsReview > 0) {
+    return `${counts.needsReview} candidate${counts.needsReview === 1 ? "" : "s"} need human review before they should be committed.`;
+  }
+  return "No candidates are strong enough to commit as shared policy yet.";
+}
+
+function comparePromotionCandidates(left: ManifestPromotionCandidate, right: ManifestPromotionCandidate): number {
+  const statusDiff = promotionStatusRank(left.status) - promotionStatusRank(right.status);
+  if (statusDiff !== 0) {
+    return statusDiff;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function promotionStatusRank(status: ManifestPromotionStatus): number {
+  if (status === "commit-candidate") {
+    return 0;
+  }
+  if (status === "needs-review") {
+    return 1;
+  }
+  return 2;
+}
+
+function appendPromotionPlan(lines: string[], plan: ManifestPromotionPlan): void {
+  lines.push("## Promotion Plan");
+  lines.push("");
+  lines.push(plan.summary);
+  lines.push("");
+  lines.push(
+    `Summary: ${plan.counts.commitCandidate} commit-candidate, ${plan.counts.needsReview} needs-review, ${plan.counts.lowSignal} low-signal.`,
+  );
+  lines.push("");
+  if (plan.candidates.length === 0) {
+    lines.push("No candidates were produced.");
+    lines.push("");
+    return;
+  }
+  lines.push("| Status | Candidate | Reason | Action |");
+  lines.push("| --- | --- | --- | --- |");
+  for (const candidate of plan.candidates) {
+    lines.push(
+      `| ${candidate.status} | ${escapeMarkdownTableCell(candidate.name)} \`${escapeMarkdownInline(candidate.id)}\` | ${escapeMarkdownTableCell(candidate.reason)} | ${escapeMarkdownTableCell(candidate.action)} |`,
+    );
+  }
+  lines.push("");
 }
 
 function manifestSuggestionHeader(
@@ -599,6 +788,10 @@ function uniqueStrings(values: string[]): string[] {
 
 function escapeMarkdownInline(value: string): string {
   return value.replaceAll("`", "'");
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return escapeMarkdownInline(value).replaceAll("|", "\\|").replace(/\r?\n/g, " ");
 }
 
 const ignoredPathSegments = new Set([

@@ -642,6 +642,8 @@ function buildE2eBootstrapPlan(input: E2eBootstrapPlanInput): E2eBootstrapPlan {
   const runnerGap = input.missingTestability.find((gap) => /No \.maestro|No Playwright config/i.test(gap));
   const draftCommand = `codeward e2e draft . --base ${input.base} --head ${input.head}`;
   const planHistoryCommand = `codeward e2e plan . --base ${input.base} --head ${input.head} --record-history`;
+  const domainsSuggestCommand = `codeward domains suggest . --base ${input.base} --head ${input.head}`;
+  const flowsSuggestCommand = `codeward flows suggest . --base ${input.base} --head ${input.head}`;
 
   if (input.recommendedRunner.name === "manual") {
     steps.push(
@@ -716,8 +718,8 @@ function buildE2eBootstrapPlan(input: E2eBootstrapPlanInput): E2eBootstrapPlan {
         "recommended",
         "Promote repeated product words into a domain manifest",
         `CodeWard inferred ${input.domainLanguage.terms.length} domain term${input.domainLanguage.terms.length === 1 ? "" : "s"} from changed files, but no shared domain manifest was found.`,
-        "Create or update .codeward/domains.yml with the terms reviewers already use for this behavior.",
-        ["codeward domains init ."],
+        "Generate a suggested domain manifest from this branch, review names and routes with the team, then commit only the terms that match team language.",
+        [domainsSuggestCommand, `${domainsSuggestCommand} --write .codeward/domains.yml`],
         input.domainLanguage.terms.flatMap((term) => term.files).slice(0, maxFilesPerFlow),
       ),
     );
@@ -744,8 +746,8 @@ function buildE2eBootstrapPlan(input: E2eBootstrapPlanInput): E2eBootstrapPlan {
         input.flows.length > 0 ? "recommended" : "required",
         "Capture the first durable core flows",
         "No .codeward/flows.yml manifest was found, so CodeWard can infer changed-flow candidates but cannot distinguish team-critical journeys yet.",
-        "Add the highest-value product journeys to .codeward/flows.yml so future PRs can be evaluated against team-approved lifecycle checks.",
-        ["codeward flows init ."],
+        "Generate suggested flow entries from this branch, keep only the journeys humans agree are durable, then commit them as team policy.",
+        [flowsSuggestCommand, `${flowsSuggestCommand} --write .codeward/flows.yml`],
         input.flows.flatMap((flow) => flow.files).slice(0, maxFilesPerFlow),
       ),
     );
