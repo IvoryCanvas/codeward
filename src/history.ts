@@ -107,6 +107,14 @@ export interface E2ePlanHistorySnapshot {
     changedFilesCount: number;
     changedFiles: string[];
     suggestedCommands: string[];
+    workspaceTargets: Array<{
+      path: string;
+      packageName?: string;
+      projectType: string;
+      recommendedRunner: string;
+      changedFiles: string[];
+      suggestedCommand: string;
+    }>;
     testSuite: E2ePlanResult["testSuite"];
     flows: Array<{
       title: string;
@@ -134,6 +142,7 @@ export interface E2ePlanHistorySnapshot {
   };
   summary: {
     changedFiles: number;
+    workspaceTargets: number;
     flows: number;
     coreFlows: number;
     domains: number;
@@ -289,6 +298,14 @@ function buildE2ePlanHistorySnapshot(historyRoot: string, plan: E2ePlanResult): 
       changedFilesCount: plan.changedFiles.length,
       changedFiles: plan.changedFiles.map((file) => file.path).slice(0, 50),
       suggestedCommands: plan.suggestedCommands.slice(0, 20),
+      workspaceTargets: plan.workspaceTargets.map((target) => ({
+        path: target.path,
+        packageName: target.packageName,
+        projectType: target.project.type,
+        recommendedRunner: target.recommendedRunner.name,
+        changedFiles: target.changedFiles.slice(0, 20),
+        suggestedCommand: target.suggestedCommand,
+      })),
       testSuite: plan.testSuite,
       flows: plan.flows.map((flow) => ({
         title: flow.title,
@@ -316,6 +333,7 @@ function buildE2ePlanHistorySnapshot(historyRoot: string, plan: E2ePlanResult): 
     },
     summary: {
       changedFiles: plan.changedFiles.length,
+      workspaceTargets: plan.workspaceTargets.length,
       flows: plan.flows.length,
       coreFlows: plan.coreFlows.length,
       domains: plan.domains.length,

@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import { buildDomainLanguageSummary } from "./domain-language.js";
 import { defaultDomainManifestPath, loadDomainManifest, matchDomains } from "./domains.js";
@@ -10,7 +10,7 @@ import {
   summarizeTestSuiteInventory,
 } from "./test-evidence.js";
 import { generateTestPlan } from "./test-plan.js";
-import type { TestPlanChangedFile, TestPlanOptions } from "./test-plan.js";
+import type { TestPlanChangedFile, TestPlanOptions, TestPlanResult } from "./test-plan.js";
 import type { DomainLanguageSummary, DomainScenarioSuggestion } from "./domain-language.js";
 import type { MatchedDomain } from "./domains.js";
 import type { MatchedCoreFlow } from "./flows.js";
@@ -31,6 +31,7 @@ export type E2eBootstrapStepStatus = "required" | "recommended" | "ready";
 export type E2eBootstrapStepCategory =
   | "runner"
   | "draft"
+  | "workspace"
   | "domain-language"
   | "core-flow"
   | "fixture"
@@ -62,6 +63,16 @@ export interface E2eProjectProfile {
 export interface E2eRunnerRecommendation {
   name: E2eRunnerName;
   reason: string;
+}
+
+export interface E2eWorkspaceTarget {
+  path: string;
+  packageName?: string;
+  project: E2eProjectProfile;
+  recommendedRunner: E2eRunnerRecommendation;
+  changedFiles: string[];
+  reason: string;
+  suggestedCommand: string;
 }
 
 export type E2eCoveragePriority = "critical" | "recommended" | "optional";
@@ -189,6 +200,7 @@ export interface E2ePlanResult {
   changedFiles: TestPlanChangedFile[];
   suggestedCommands: string[];
   localHistory?: LocalHistoryReference;
+  workspaceTargets: E2eWorkspaceTarget[];
   flows: E2eFlow[];
   validationMatrix: E2eValidationMatrix;
   bootstrap: E2eBootstrapPlan;
@@ -265,12 +277,28 @@ export interface E2eDraftResult {
 }
 
 interface PackageJson {
+  name?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   scripts?: Record<string, string>;
 }
 
 const maxFilesPerFlow = 8;
+const workspacePackageSearchLimit = 200;
+const workspacePackageIgnoredDirectories = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  "vendor",
+]);
 
 export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions = {}): Promise<E2ePlanResult> {
   const root = path.resolve(rootInput);
@@ -285,6 +313,7 @@ export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions
   const domainManifest = await loadDomainManifest(coreFlowRoot);
   const domains = matchDomains(domainManifest, coreFlowChangedFiles);
   const domainLanguage = await buildDomainLanguageSummary(root, testPlan.changedFiles, coreFlows, domains);
+  const workspaceTargets = await buildWorkspaceTargets(root, testPlan);
   const flows = await buildFlows(
     root,
     testPlan.changedFiles,
@@ -311,6 +340,7 @@ export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions
     coreFlows,
     domains,
     domainLanguage,
+    workspaceTargets,
     flows,
     validationMatrix,
     missingTestability,
@@ -338,6 +368,7 @@ export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions
     domainLanguage,
     changedFiles: testPlan.changedFiles,
     suggestedCommands: testPlan.suggestedCommands,
+    workspaceTargets,
     flows,
     validationMatrix,
     bootstrap,
@@ -697,6 +728,7 @@ interface E2eBootstrapPlanInput {
   coreFlows: MatchedCoreFlow[];
   domains: MatchedDomain[];
   domainLanguage: DomainLanguageSummary;
+  workspaceTargets: E2eWorkspaceTarget[];
   flows: E2eFlow[];
   validationMatrix: E2eValidationMatrix;
   missingTestability: string[];
@@ -710,6 +742,23 @@ function buildE2eBootstrapPlan(input: E2eBootstrapPlanInput): E2eBootstrapPlan {
   const planHistoryCommand = `codeward e2e plan . --base ${input.base} --head ${input.head} --record-history`;
   const domainsSuggestCommand = `codeward domains suggest . --base ${input.base} --head ${input.head}`;
   const flowsSuggestCommand = `codeward flows suggest . --base ${input.base} --head ${input.head}`;
+
+  if (input.workspaceTargets.length > 0) {
+    const concreteTargets = input.workspaceTargets.filter((target) => target.project.type !== "unknown");
+    steps.push(
+      bootstrapStep(
+        "workspace",
+        concreteTargets.length > 0 ? "recommended" : "required",
+        "Run package-scoped E2E plans for changed targets",
+        concreteTargets.length > 0
+          ? `${concreteTargets.length} changed workspace target${concreteTargets.length === 1 ? "" : "s"} have clearer app or service signals than the workspace root.`
+          : "Changed files map to workspace packages, but their app surface still needs a package-scoped review.",
+        "Run the suggested package-scoped plan commands, then generate drafts from the package whose changed flow is user-facing.",
+        input.workspaceTargets.map((target) => target.suggestedCommand).slice(0, 4),
+        input.workspaceTargets.flatMap((target) => target.changedFiles).slice(0, maxFilesPerFlow),
+      ),
+    );
+  }
 
   if (input.recommendedRunner.name === "manual") {
     steps.push(
@@ -1019,6 +1068,7 @@ function bootstrapStatusRank(status: E2eBootstrapStepStatus): number {
 function bootstrapCategoryRank(category: E2eBootstrapStepCategory): number {
   const order: E2eBootstrapStepCategory[] = [
     "runner",
+    "workspace",
     "draft",
     "testability",
     "fixture",
@@ -1638,6 +1688,9 @@ export function formatMarkdownE2ePlan(result: E2ePlanResult): string {
   }
   lines.push(`- Matched core flows: ${result.coreFlows.length}`);
   lines.push(`- Matched domains: ${result.domains.length}`);
+  if (result.workspaceTargets.length > 0) {
+    lines.push(`- Changed app/package targets: ${result.workspaceTargets.length}`);
+  }
   lines.push(`- Changed files considered: ${result.changedFiles.length}`);
   if (result.localHistory) {
     lines.push(`- Local history: \`${escapeMarkdownInline(result.localHistory.path)}\``);
@@ -1655,6 +1708,23 @@ export function formatMarkdownE2ePlan(result: E2ePlanResult): string {
     }
   }
   lines.push("");
+
+  if (result.workspaceTargets.length > 0) {
+    lines.push("## Changed App/Package Targets");
+    lines.push("");
+    lines.push(
+      "These targets were inferred from changed files under child packages. Run the scoped command for the target before treating the root-level E2E plan as final.",
+    );
+    lines.push("");
+    lines.push("| Target | Package | Project | Runner | Changed Files | Scoped Command |");
+    lines.push("| --- | --- | --- | --- | --- | --- |");
+    for (const target of result.workspaceTargets) {
+      lines.push(
+        `| \`${escapeMarkdownTableCell(target.path)}\` | ${escapeMarkdownTableCell(target.packageName ?? "")} | ${formatProjectType(target.project.type)} | ${formatRunnerName(target.recommendedRunner.name)} | ${target.changedFiles.length} | \`${escapeMarkdownTableCell(target.suggestedCommand)}\` |`,
+      );
+    }
+    lines.push("");
+  }
 
   if (result.bootstrap.steps.length > 0) {
     lines.push("## Bootstrap Plan");
@@ -2140,6 +2210,135 @@ function overrideRunner(project: E2eProjectProfile, runner: E2eRunnerName): E2eR
     name: runner,
     reason: `Use a manual checklist because no runnable E2E runner was selected for this ${formatProjectType(project.type)} project.`,
   };
+}
+
+async function buildWorkspaceTargets(root: string, testPlan: TestPlanResult): Promise<E2eWorkspaceTarget[]> {
+  const workspaceRoot = testPlan.workspaceRoot ?? root;
+  if (path.resolve(root) !== path.resolve(workspaceRoot) || testPlan.changedFiles.length === 0) {
+    return [];
+  }
+
+  const packageDirectories = await discoverWorkspacePackageDirectories(root);
+  if (packageDirectories.length === 0) {
+    return [];
+  }
+
+  const changedFilesByPackage = new Map<string, string[]>();
+  for (const changedFile of testPlan.changedFiles) {
+    const packagePath = nearestPackageDirectory(changedFile.path, packageDirectories);
+    if (!packagePath) {
+      continue;
+    }
+    const files = changedFilesByPackage.get(packagePath) ?? [];
+    files.push(changedFile.path);
+    changedFilesByPackage.set(packagePath, files);
+  }
+
+  const targets: E2eWorkspaceTarget[] = [];
+  for (const [packagePath, changedFiles] of [...changedFilesByPackage.entries()].sort(compareWorkspaceTargetEntries)) {
+    const packageRoot = path.join(root, packagePath);
+    const packageJson = await readPackageJson(packageRoot);
+    const project = await detectProjectProfile(packageRoot);
+    const recommendedRunner = recommendRunner(project);
+    targets.push({
+      path: packagePath,
+      packageName: packageJson?.name,
+      project,
+      recommendedRunner,
+      changedFiles: uniqueStrings(changedFiles).slice(0, 20),
+      reason: workspaceTargetReason(packagePath, project, changedFiles.length),
+      suggestedCommand: workspaceTargetCommand(packagePath, testPlan),
+    });
+  }
+
+  return targets.slice(0, 8);
+}
+
+async function discoverWorkspacePackageDirectories(root: string): Promise<string[]> {
+  const directories: string[] = [];
+
+  async function walk(directory: string): Promise<void> {
+    if (directories.length >= workspacePackageSearchLimit) {
+      return;
+    }
+
+    let entries: Dirent<string>[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    if (directory !== root && entries.some((entry) => entry.isFile() && entry.name === "package.json")) {
+      directories.push(toPosixPath(path.relative(root, directory)));
+      if (directories.length >= workspacePackageSearchLimit) {
+        return;
+      }
+    }
+
+    for (const entry of entries) {
+      if (directories.length >= workspacePackageSearchLimit) {
+        return;
+      }
+      if (!entry.isDirectory() || workspacePackageIgnoredDirectories.has(entry.name)) {
+        continue;
+      }
+      await walk(path.join(directory, entry.name));
+    }
+  }
+
+  await walk(root);
+  return directories.sort((left, right) => right.length - left.length);
+}
+
+function nearestPackageDirectory(filePath: string, packageDirectories: string[]): string | undefined {
+  const normalizedPath = toPosixPath(filePath).replace(/^\.\/+/, "");
+  return packageDirectories.find(
+    (directory) => normalizedPath === `${directory}/package.json` || normalizedPath.startsWith(`${directory}/`),
+  );
+}
+
+function compareWorkspaceTargetEntries(left: [string, string[]], right: [string, string[]]): number {
+  const countDiff = right[1].length - left[1].length;
+  if (countDiff !== 0) {
+    return countDiff;
+  }
+  return left[0].localeCompare(right[0]);
+}
+
+function workspaceTargetReason(packagePath: string, project: E2eProjectProfile, changedFileCount: number): string {
+  const fileCount = `${changedFileCount} changed file${changedFileCount === 1 ? "" : "s"}`;
+  if (project.type === "unknown") {
+    return `${fileCount} map to ${packagePath}, but the package needs a scoped plan before choosing a runner.`;
+  }
+  return `${fileCount} map to ${packagePath}, which looks like a ${formatProjectType(project.type)} target.`;
+}
+
+function workspaceTargetCommand(packagePath: string, testPlan: TestPlanResult): string {
+  const args = [
+    "codeward",
+    "e2e",
+    "plan",
+    packagePath,
+    "--workspace-root",
+    ".",
+    "--base",
+    testPlan.base,
+    "--head",
+    testPlan.head,
+  ];
+  if (testPlan.includeWorkingTree) {
+    args.push("--include-working-tree");
+  }
+  return args.map(shellArg).join(" ");
+}
+
+function shellArg(value: string): string {
+  if (/^[A-Za-z0-9_./:@=-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function toCoreFlowChangedFiles(

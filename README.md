@@ -153,6 +153,8 @@ For monorepos, pass `--workspace-root` when scanning a package. Package-local ch
 
 `codeward e2e plan` turns changed file paths into a first-pass E2E testing plan. It detects whether a project looks like Expo/React Native, web, or an API/service repo, recommends a runner such as Maestro or Playwright, starts backend services with an API contract checklist, suggests bootstrap steps for repos with little or no test history, suggests domain language for the changed behavior, suggests candidate user flows, adds coverage targets, compares those targets with existing test-suite evidence when tests are present, flags API-dependent flows that need mock or fixture responses, and points out missing stable selectors such as `testID` or `data-testid` before anyone starts writing tests from a blank file.
 
+When run at a monorepo root, the E2E plan also reports changed app/package targets. This helps a maintainer move from a broad workspace diff to scoped commands such as `codeward e2e plan services/offer --workspace-root . --base origin/main --head HEAD`, where package-specific runner detection and flow naming are usually sharper.
+
 Each candidate flow also includes a flow language brief: actor, trigger, goal, success signal, reviewer question, and edge cases. The brief keeps generated tests tied to product behavior rather than only changed file names.
 
 The bootstrap section answers what must happen before generated drafts can be treated as real regression coverage. For example, a testless web project can get required steps for Playwright setup, first draft generation, stable selector work, fixture/mock data, and missing validation evidence, plus recommended steps for `.codeward/domains.yml`, `.codeward/flows.yml`, and local history recording.
