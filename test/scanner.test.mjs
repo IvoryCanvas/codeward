@@ -2301,6 +2301,87 @@ test("generateE2eDraft uses web selectors in Playwright specs", async () => {
   assert.match(spec, /Inferred selectors/);
 });
 
+test("generateE2eDraft asserts changed HTML success copy in Playwright specs", async () => {
+  const root = await makeTempRepo();
+  await initGitRepo(root);
+  await mkdir(path.join(root, ".codeward"), { recursive: true });
+  await mkdir(path.join(root, "src/pages/checkout"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        dev: "vite --host 127.0.0.1",
+        "test:e2e": "playwright test",
+      },
+      dependencies: {
+        "@playwright/test": "^1.56.0",
+        vite: "^7.0.0",
+        "react-dom": "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(path.join(root, "playwright.config.ts"), "export default { use: { baseURL: 'http://127.0.0.1:4173' } };\n");
+  await writeFile(
+    path.join(root, ".codeward/flows.yml"),
+    [
+      "flows:",
+      "  - id: checkout-completion",
+      "    name: Checkout completion",
+      "    priority: critical",
+      "    files:",
+      "      - src/pages/checkout/**",
+      "    routes:",
+      "      - /checkout",
+      "    checks:",
+      "      - Complete checkout.",
+      "      - Confirm checkout complete is visible.",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(root, "src/pages/checkout/CheckoutPage.tsx"),
+    [
+      "export function CheckoutPage() {",
+      "  return <main>",
+      "    <button data-testid=\"checkout-submit\">Submit</button>",
+      "  </main>;",
+      "}",
+    ].join("\n"),
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/checkout-complete-copy"]);
+  await writeFile(
+    path.join(root, "src/pages/checkout/CheckoutPage.tsx"),
+    [
+      "export function CheckoutPage() {",
+      "  return <main>",
+      "    <button data-testid=\"checkout-submit\">Submit</button>",
+      "    <p>Checkout complete</p>",
+      "  </main>;",
+      "}",
+    ].join("\n"),
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "add checkout completion copy"]);
+
+  const draft = await generateE2eDraft(root, {
+    base: "main",
+    head: "HEAD",
+    output: "tests/e2e",
+    runner: "playwright",
+  });
+  const draftFile = draft.files.find((file) => file.flowTitle === "Checkout completion");
+  assert.ok(draftFile);
+  const spec = await readFile(path.join(root, draftFile.path), "utf8");
+
+  assert.match(spec, /page\.getByTestId\("checkout-submit"\)\.click\(\)/);
+  assert.match(spec, /expect\(page\.getByText\("Checkout complete"\)\)\.toBeVisible\(\)/);
+  assert.match(spec, /visible-text: Checkout complete/);
+  assert.equal(draftFile.selfCheck?.status, "pass");
+});
+
 test("generateE2ePlan captures Playwright execution profile and self-check blockers", async () => {
   const root = await makeTempRepo();
   await initGitRepo(root);

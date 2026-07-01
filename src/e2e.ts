@@ -7695,6 +7695,14 @@ function extractTextNodeSelectors(file: string, text: string): E2eSelector[] {
     }
   }
 
+  const htmlTextNodeMatcher = /<(p|span|strong|em|small|label|li|output|h[1-6])\b[^>]*>\s*([^<>{}\n][^<>{}]*)\s*<\/\1>/g;
+  for (const match of text.matchAll(htmlTextNodeMatcher)) {
+    const value = normalizeSelectorValue(match[2]);
+    if (value) {
+      selectors.push({ kind: "visible-text", value, file });
+    }
+  }
+
   for (const selector of extractAttributeSelectors(file, text, ["title"], "visible-text")) {
     selectors.push(selector);
   }
