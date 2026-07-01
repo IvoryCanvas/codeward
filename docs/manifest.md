@@ -2,6 +2,8 @@
 
 `.codeward/manifest.yaml` is CodeWard's repo-local verification memory. It lets a team capture the product domains, flows, anchors, and checks that static analysis cannot reliably infer from code alone.
 
+> **Important:** create the shared team baseline from the repository's default branch, after pulling the latest changes. CodeWard reads the current checkout and does not silently switch branches, so a manifest generated on a feature branch represents that feature branch rather than the team's default QA map.
+
 The intended workflow for the first shared baseline is:
 
 ```sh

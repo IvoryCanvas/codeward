@@ -80,6 +80,8 @@ codeward e2e plan . --base origin/main --head HEAD --record-history
 
 Create a baseline repo-level verification manifest from the checkout you want to treat as the shared team baseline. For most projects, that means the latest default branch:
 
+> **Important:** run the first shared `manifest init` from the default branch. CodeWard reads the current checkout and does not silently switch branches, so a feature-branch run creates a feature-branch snapshot rather than the team's default QA map.
+
 ```sh
 git switch main
 git pull

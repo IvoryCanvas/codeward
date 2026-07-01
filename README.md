@@ -270,7 +270,9 @@ Each candidate flow also includes a flow language brief: actor, trigger, goal, s
 
 The bootstrap section answers what must happen before generated drafts can be treated as real regression coverage. For example, a testless web project can get required steps for Playwright setup, first draft generation, stable selector work, fixture/mock data, and missing validation evidence, plus recommended steps for `.codeward/manifest.yaml`, `.codeward/domains.yml`, `.codeward/flows.yml`, and local history recording.
 
-Run `codeward manifest init .` to create a baseline verification manifest. CodeWard infers domains, flows, route/component anchors, checks, runner hints, source, and confidence from the current checkout. It does not silently switch branches or rewrite the repository state. For a shared team baseline, run it from the repository's default branch after pulling the latest changes:
+Run `codeward manifest init .` to create a baseline verification manifest. CodeWard infers domains, flows, route/component anchors, checks, runner hints, source, and confidence from the current checkout.
+
+> **Important:** create the shared team baseline from the repository's default branch, after pulling the latest changes. CodeWard does not silently switch branches or rewrite the repository state, so running `manifest init` from a feature branch creates a feature-branch snapshot, not the team's default QA map.
 
 ```sh
 git switch main
