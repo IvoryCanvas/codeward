@@ -2092,12 +2092,16 @@ function draftReadinessRecommendation(level: E2eDraftReadinessLevel, blockers: s
   const blocker = blockers[0];
   if (level === "needs-work") {
     return blocker
-      ? `Resolve the highest-impact blocker first: ${blocker}.`
+      ? `Resolve the highest-impact blocker first: ${withTerminalPeriod(blocker)}`
       : "Close required action items before treating the drafts as regression evidence.";
   }
   return blocker
-    ? `Do not treat these drafts as runnable yet. Start with: ${blocker}.`
+    ? `Do not treat these drafts as runnable yet. Start with: ${withTerminalPeriod(blocker)}`
     : "Do not treat these drafts as runnable until required setup and validation gaps are closed.";
+}
+
+function withTerminalPeriod(value: string): string {
+  return /[.!?)]$/.test(value.trim()) ? value.trim() : `${value.trim()}.`;
 }
 
 function buildFlowLanguageBrief(flow: Omit<E2eFlow, "languageBrief">): E2eFlowLanguageBrief {
@@ -6195,7 +6199,11 @@ function draftExecutionBlockers(
     blockers.push(flow.fixtureReadiness.nextActions[0] ?? flow.fixtureReadiness.reason);
   }
   if (validationSummary.blockingGapCount > 0) {
-    blockers.push(`${validationSummary.blockingGapCount} blocking validation gap${validationSummary.blockingGapCount === 1 ? "" : "s"} remain.`);
+    blockers.push(
+      `${validationSummary.blockingGapCount} blocking validation gap${validationSummary.blockingGapCount === 1 ? "" : "s"} ${
+        validationSummary.blockingGapCount === 1 ? "remains" : "remain"
+      }.`,
+    );
   }
   if (selfCheck?.status === "fail") {
     blockers.push(...selfCheck.blockers);

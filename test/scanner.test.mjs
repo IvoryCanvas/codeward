@@ -844,9 +844,11 @@ test("generateE2ePlan detects CLI packages and suggests command verification che
   assert.equal(draft.files.some((file) => /primary journey/i.test(file.flowTitle)), false);
   assert.ok(draft.files.some((file) => /CLI command verification checklist/.test(file.flowTitle)));
   assert.equal(
-    draft.files.some((file) => file.actionItems.some((item) => item.category === "fixture" && item.priority === "required")),
+    draft.files.some((file) => file.actionItems.some((item) => item.kind === "fixture" && item.priority === "required")),
     false,
   );
+  assert.doesNotMatch(draft.readinessSummary.recommendation, /\.\./);
+  assert.doesNotMatch(draft.readinessSummary.recommendation, /\b1 blocking validation gap remain\./);
   assert.match(markdown, /Project: CLI/);
   assert.match(markdown, /Start with CLI command validation/);
   assert.match(draftMarkdown, /representative arguments, expected stdout\/stderr, generated files, exit codes/);

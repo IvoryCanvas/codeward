@@ -119,7 +119,7 @@ Last verified on 2026-07-01 on PR #67 after adding action-specific E2E generatio
 | `git diff --check` | Passed. |
 | `pnpm pack --dry-run` | Passed; tarball includes `dist`, `docs`, `schema`, `README.md`, `CHANGELOG.md`, `LICENSE`, and `package.json`. |
 | `npm publish --dry-run --access public` | Passed; package metadata no longer requires npm autocorrection. |
-| Coverage threshold | Passed the 80% line, branch, and function gates; latest runs report 85.36% lines, 83.48% branches, and 93.48% functions. |
+| Coverage threshold | Passed the 80% line, branch, and function gates; latest runs report 85.41% lines, 83.51% branches, and 93.48% functions. |
 | `pnpm run release:check` | Passed as the single local release gate for this PR state. |
 
 ## Real Repository Smoke Snapshot
