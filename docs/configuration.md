@@ -78,16 +78,18 @@ codeward e2e plan . --base origin/main --head HEAD --record-history
 
 ## Verification Manifest
 
-Create a baseline repo-level verification manifest:
+Create a baseline repo-level verification manifest from the checkout you want to treat as the shared team baseline. For most projects, that means the latest default branch:
 
 ```sh
+git switch main
+git pull
 codeward manifest init .
 codeward manifest init services/offer --workspace-root .
 codeward manifest validate .
 codeward manifest explain . --base origin/main --head HEAD
 ```
 
-`.codeward/manifest.yaml` is meant to start the feedback loop. CodeWard infers a baseline from routes, pages, components, API calls, package signals, and testable UI surfaces. A maintainer can then correct the manifest when recommendations are wrong, and future `verify`, `e2e plan`, and `e2e draft` output will use the corrected context. See [Verification Manifest](manifest.md) for the full schema, field guide, and adoption workflow.
+`.codeward/manifest.yaml` is meant to start the feedback loop. CodeWard infers a baseline from routes, pages, components, API calls, package signals, and testable UI surfaces in the current checkout. It does not automatically switch to the default branch. A maintainer can then correct the manifest when recommendations are wrong, and future `verify`, `e2e plan`, and `e2e draft` output will use the corrected context. See [Verification Manifest](manifest.md) for the full schema, field guide, and adoption workflow.
 
 Use the manifest commands in this order when adopting a repository:
 

@@ -2,14 +2,23 @@
 
 `.codeward/manifest.yaml` is CodeWard's repo-local verification memory. It lets a team capture the product domains, flows, anchors, and checks that static analysis cannot reliably infer from code alone.
 
-The intended workflow is:
+The intended workflow for the first shared baseline is:
 
 ```sh
+git switch main
+git pull
 codeward manifest init .
 codeward manifest validate .
+```
+
+Then use the committed manifest from feature branches or PR branches:
+
+```sh
 codeward manifest explain . --base origin/main --head HEAD
 codeward e2e draft . --base origin/main --head HEAD --dry-run
 ```
+
+`manifest init` reads the current checkout on disk. It does not silently switch to the default branch, because changing a developer's branch or working tree would be surprising and unsafe. If the team wants the manifest to represent the default product baseline, run it from the default branch after pulling the latest changes.
 
 ## What It Solves
 

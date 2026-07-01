@@ -270,7 +270,15 @@ Each candidate flow also includes a flow language brief: actor, trigger, goal, s
 
 The bootstrap section answers what must happen before generated drafts can be treated as real regression coverage. For example, a testless web project can get required steps for Playwright setup, first draft generation, stable selector work, fixture/mock data, and missing validation evidence, plus recommended steps for `.codeward/manifest.yaml`, `.codeward/domains.yml`, `.codeward/flows.yml`, and local history recording.
 
-Run `codeward manifest init .` to create a baseline verification manifest. CodeWard infers domains, flows, route/component anchors, checks, runner hints, source, and confidence from the repository. The manifest is not meant to be perfect on the first run. It is meant to start the feedback loop: CodeWard recommends E2E work from the manifest, shows why a recommendation happened, and points to the manifest path to edit when the recommendation is wrong.
+Run `codeward manifest init .` to create a baseline verification manifest. CodeWard infers domains, flows, route/component anchors, checks, runner hints, source, and confidence from the current checkout. It does not silently switch branches or rewrite the repository state. For a shared team baseline, run it from the repository's default branch after pulling the latest changes:
+
+```sh
+git switch main
+git pull
+codeward manifest init . --write .codeward/manifest.yaml
+```
+
+After the baseline is committed, feature branches should usually run `manifest explain`, `e2e plan`, or `e2e draft` against the PR base such as `origin/main`. The manifest is not meant to be perfect on the first run. It is meant to start the feedback loop: CodeWard recommends E2E work from the manifest, shows why a recommendation happened, and points to the manifest path to edit when the recommendation is wrong.
 
 Generated manifests include a `$schema` reference to `schema/codeward-manifest.schema.json`, so teams can validate and edit `.codeward/manifest.yaml` with a documented contract. See [docs/manifest.md](docs/manifest.md) for the full field guide and adoption workflow.
 
