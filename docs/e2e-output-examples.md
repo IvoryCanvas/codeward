@@ -115,6 +115,27 @@ appId: ${APP_ID}
 - tapOn: { id: "ink-save-button" }
 ```
 
+When the changed file name exposes a narrower user action, the generated flow should use that action instead of stopping at a broad domain journey:
+
+```txt
+Changed file: src/features/offer/components/ContentUrlSubmitModal.tsx
+Domain term: Offer
+Generated scenario: Offer Content URL Submit
+Generated draft path: .maestro/offer-content-url-submit.yaml
+```
+
+The draft should then carry the same product-action wording into the runnable skeleton:
+
+```yaml
+# Flow: Offer Content URL Submit
+# Domain scenario: Offer Content URL Submit
+# Intent: Verify the changed "Content URL Submit" behavior inside Offer instead of stopping at a generic primary journey.
+appId: ${APP_ID}
+---
+- launchApp
+- tapOn: { id: "offer-content-url-submit" }
+```
+
 ## API / Service Contract
 
 For backend changes such as `src/v1/offer/utils.ts`, CodeWard should not invent a browser journey. It should infer the domain word and stay contract-focused:

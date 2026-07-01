@@ -4600,7 +4600,7 @@ function normalizeRouteSegment(segment: string): string | undefined {
   if (dynamic) {
     return `:${normalizeRouteParamName(dynamic)}`;
   }
-  return slugify(routeStem.replace(/Page$/i, ""));
+  return normalizeStaticRouteSegment(routeStem.replace(/Page$/i, ""));
 }
 
 function dynamicRouteSegmentName(segment: string): string | undefined {
@@ -4627,8 +4627,19 @@ function normalizeRouteParamName(value: string): string {
   return normalized || "param";
 }
 
+function normalizeStaticRouteSegment(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || /[\s<>"'`\\{}]/.test(trimmed)) {
+    return undefined;
+  }
+  if (/^[A-Za-z0-9._~-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return slugify(trimmed);
+}
+
 function shouldDropRouteLeaf(leaf: string, parent: string | undefined): boolean {
-  return Boolean(parent && leaf === parent);
+  return Boolean(parent && leaf.toLowerCase() === parent.toLowerCase());
 }
 
 function normalizeEntrypointRoute(value: string | undefined): string | undefined {

@@ -1433,7 +1433,9 @@ test("generateE2ePlan keeps service changes generic and avoids fixture-specific 
   assert.equal(titles.some((title) => /Ink drawing|Record mode|Saved entry|Localized visual/i.test(title)), false);
 
   const draft = await generateE2eDraft(root, { base: "main", head: "HEAD", output: "docs/e2e" });
-  const manualDraftFile = draft.files.find((file) => file.path.endsWith(".md"));
+  assert.ok(draft.files.some((file) => file.flowTitle === "Audit Record"));
+  assert.equal(draft.files.some((file) => /Ink drawing|Record mode|Saved entry|Localized visual/i.test(file.flowTitle)), false);
+  const manualDraftFile = draft.files.find((file) => file.flowTitle === "Audit API contract");
   assert.ok(manualDraftFile);
   const manualDraft = await readFile(path.join(root, manualDraftFile.path), "utf8");
   assert.match(manualDraft, /## Draft Brief/);
@@ -1561,6 +1563,74 @@ test("generateE2eDraft scopes entrypoint hints to each domain scenario", async (
   assert.doesNotMatch(offerDraftFile.primaryEntrypoint ?? "", /Archive/);
   assert.match(offerDraft, /screen Offer/);
   assert.doesNotMatch(offerDraft, /screen Archive/);
+});
+
+test("generateE2eDraft names changed component actions before generic primary journeys", async () => {
+  const root = await makeTempRepo();
+  await initGitRepo(root);
+  await mkdir(path.join(root, "src/features/offer/components"), { recursive: true });
+  await mkdir(path.join(root, "src/entities/offer/api"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        ios: "expo run:ios",
+      },
+      dependencies: {
+        expo: "^54.0.0",
+        "react-native": "^0.81.0",
+      },
+    }),
+  );
+  await writeFile(path.join(root, "app.json"), JSON.stringify({ expo: { name: "Fixture" } }));
+  await writeFile(
+    path.join(root, "src/features/offer/components/OfferScreen.tsx"),
+    "export function OfferScreen() { return null; }\n",
+  );
+  await writeFile(
+    path.join(root, "src/features/offer/components/ContentUrlSubmitModal.tsx"),
+    "export function ContentUrlSubmitModal() { return null; }\n",
+  );
+  await writeFile(
+    path.join(root, "src/entities/offer/api/offerApi.ts"),
+    "export async function submitContentUrl() { return { ok: true }; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/content-url-submit"]);
+  await writeFile(
+    path.join(root, "src/features/offer/components/ContentUrlSubmitModal.tsx"),
+    [
+      "import { Pressable, TextInput } from 'react-native';",
+      "export function ContentUrlSubmitModal() {",
+      "  return <><TextInput testID=\"offer-content-url\" /><Pressable testID=\"offer-content-url-submit\" /></>;",
+      "}",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(root, "src/entities/offer/api/offerApi.ts"),
+    "export async function submitContentUrl() { return { ok: true, status: 'submitted' }; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "update content url submit"]);
+
+  const plan = await generateE2ePlan(root, { base: "main", head: "HEAD", runner: "maestro" });
+  const specificScenario = plan.domainLanguage.scenarios.find((scenario) => scenario.title === "Offer Content URL Submit");
+  const draft = await generateE2eDraft(root, { base: "main", head: "HEAD", runner: "maestro", output: ".maestro" });
+  const draftFile = draft.files.find((file) => file.flowTitle === "Offer Content URL Submit");
+  assert.ok(specificScenario);
+  assert.match(specificScenario.intent, /instead of stopping at a generic primary journey/);
+  assert.ok(draftFile);
+  assert.equal(draftFile.source, "domain-language");
+  assert.equal(draftFile.path, ".maestro/offer-content-url-submit.yaml");
+  assert.equal(draft.files.some((file) => file.flowTitle === "Offer primary journey"), false);
+  const draftText = await readFile(path.join(root, draftFile.path), "utf8");
+  assert.match(draftText, /Flow: Offer Content URL Submit/);
+  assert.match(draftText, /Content URL Submit/);
+  assert.match(draftText, /src\/features\/offer\/components\/ContentUrlSubmitModal\.tsx/);
+  assert.match(draftText, /offer-content-url-submit/);
 });
 
 test("generateE2ePlan evaluates existing test suite coverage evidence", async () => {
@@ -2411,6 +2481,55 @@ test("generateE2eDraft normalizes dynamic routes without creating id domain scen
   assert.match(spec, /Replace route param id with a real fixture value for \/campaign\/official\/:id/);
   assert.match(spec, /page\.goto\(`\/campaign\/official\/\$\{routeParams\.id\}`\)/);
   assert.doesNotMatch(spec, /page\.goto\("\/campaign\/official\/:id"\)/);
+});
+
+test("generateE2eDraft preserves camelCase pages router route segments", async () => {
+  const root = await makeTempRepo();
+  await initGitRepo(root);
+  await mkdir(path.join(root, "src/pages/campaign/official"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "playwright test",
+      },
+      dependencies: {
+        "@playwright/test": "^1.56.0",
+        next: "^15.0.0",
+        "react-dom": "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(
+    path.join(root, "src/pages/campaign/official/applicationComplete.tsx"),
+    "export default function ApplicationCompletePage() { return <button aria-label=\"Close\">Close</button>; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/application-complete"]);
+  await writeFile(
+    path.join(root, "src/pages/campaign/official/applicationComplete.tsx"),
+    "export default function ApplicationCompletePage() { return <button aria-label=\"Close complete\">Close</button>; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "update application complete"]);
+
+  const draft = await generateE2eDraft(root, {
+    base: "main",
+    head: "HEAD",
+    output: "tests/e2e",
+    runner: "playwright",
+  });
+  const draftFile = draft.files.find((file) => file.flowTitle === "Campaign Application Complete");
+  assert.ok(draftFile);
+  const spec = await readFile(path.join(root, draftFile.path), "utf8");
+
+  assert.match(draftFile.primaryEntrypoint ?? "", /route \/campaign\/official\/applicationComplete/);
+  assert.match(spec, /route \/campaign\/official\/applicationComplete \[high\]/);
+  assert.match(spec, /page\.goto\("\/campaign\/official\/applicationComplete"\)/);
+  assert.doesNotMatch(spec, /applicationcomplete/);
 });
 
 test("generateE2eDraft fills dynamic route params from concrete route hints", async () => {
