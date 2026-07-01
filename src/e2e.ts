@@ -48,10 +48,14 @@ export type E2eBootstrapStepCategory =
   | "history";
 export type E2eSelectorKind =
   | "test-id"
+  | "input-test-id"
   | "accessibility-label"
+  | "input-accessibility-label"
   | "visible-text"
   | "web-test-id"
+  | "input-web-test-id"
   | "aria-label"
+  | "input-aria-label"
   | "placeholder"
   | "role-button"
   | "role-link";
@@ -2058,7 +2062,7 @@ function inferFlowSuccessSignal(flow: Omit<E2eFlow, "languageBrief">): string {
   if (/\bconfiguration verification\b/i.test(flow.title)) {
     return "the affected build or runtime variant starts cleanly and handles fallback values";
   }
-  const verificationStep = flow.steps.find((step) => isVerificationStep(step) && !isInteractionStep(step));
+  const verificationStep = flow.steps.find((step) => isAssertionStep(step));
   if (verificationStep) {
     return stripTerminalPunctuation(verificationStep);
   }
@@ -4020,23 +4024,67 @@ async function buildFlow(
   }
   const coverage = buildCoverageTargets(candidate.kind, files, runner);
   const setupHints = await inferFlowSetupHints(root, files, candidate.kind);
+  const selectors = await inferFlowSelectors(root, files, runner);
   const flow: Omit<E2eFlow, "languageBrief"> = {
     title: candidate.title,
     reason: candidate.reason,
     files,
-    steps: candidate.steps,
+    steps: refineStepsForInferredSelectors(candidate.steps, selectors),
     coverage,
     coverageEvidence: evaluateFlowCoverageEvidence({ title: candidate.title, files, coverage }, testSuiteInventory),
     entrypoints: await inferFlowEntrypoints(root, files, runner),
     setupHints,
     fixtureReadiness: await inferFlowFixtureReadiness(root, files, candidate.kind, setupHints, fixtureContext),
-    selectors: await inferFlowSelectors(root, files, runner),
+    selectors,
     missingTestability: await findFlowTestabilityGaps(root, files, runner),
   };
   return {
     ...flow,
     languageBrief: buildFlowLanguageBrief(flow),
   };
+}
+
+function refineStepsForInferredSelectors(steps: string[], selectors: E2eSelector[]): string[] {
+  const inputSelector = selectors.find(isInputSelector);
+  const actionSelector = selectors.find((selector) => selectorCanDriveInteraction(selector) && !isInputSelector(selector));
+  if (!inputSelector || !actionSelector || steps.some((step) => /^\s*(?:fill|input|enter|type|provide|write)\b/i.test(step))) {
+    return steps;
+  }
+
+  const refined: string[] = [];
+  for (const step of steps) {
+    const subject = exerciseStepSubject(step);
+    if (!subject) {
+      refined.push(step);
+      continue;
+    }
+    refined.push(`Fill ${selectorStepLabel(inputSelector)} with realistic data.`);
+    refined.push(`${actionVerbForSelector(actionSelector)} ${subject} using ${selectorStepLabel(actionSelector)}.`);
+  }
+  return uniqueStrings(refined);
+}
+
+function exerciseStepSubject(step: string): string | undefined {
+  const exerciseMatch = step.match(/^Exercise\s+(.+?)\s+with realistic data(?:\s+from[^.]*)?\.?$/i);
+  if (exerciseMatch?.[1]) {
+    return stripTerminalPunctuation(exerciseMatch[1]);
+  }
+  const completeMatch = step.match(/^Complete\s+(.+?)\s+with realistic data(?:\s+from[^.]*)?\.?$/i);
+  if (completeMatch?.[1]) {
+    return stripTerminalPunctuation(completeMatch[1]);
+  }
+  return undefined;
+}
+
+function selectorStepLabel(selector: E2eSelector): string {
+  return titleCase(selector.value.replace(/[-_]+/g, " "));
+}
+
+function actionVerbForSelector(selector: E2eSelector): string {
+  if (/\b(?:submit|send|apply|complete|confirm|save|continue|next|upload)\b/i.test(selector.value.replace(/[-_]+/g, " "))) {
+    return "Submit";
+  }
+  return "Activate";
 }
 
 async function inferFlowEntrypoints(root: string, files: string[], runner: E2eRunnerName): Promise<E2eEntrypoint[]> {
@@ -5341,14 +5389,6 @@ async function buildDomainScenarioDraftFlow(
   const title = specializedScenario?.title ?? scenario.title;
   const reason = specializedScenario?.reason ?? scenario.intent;
   const steps = specializedScenario?.steps ?? (scenario.checks.length > 0 ? scenario.checks : (baseFlow?.steps ?? []));
-  const draftScenario = specializedScenario
-    ? {
-        ...scenario,
-        title,
-        intent: reason,
-        checks: steps,
-      }
-    : scenario;
   const scenarioFiles = normalizeScenarioFilesForRoot(plan, scenario.files);
   const files = uniqueStrings(scenarioFiles.length > 0 ? scenarioFiles : (baseFlow?.files ?? [])).slice(0, 20);
   const coverage = baseFlow?.coverage ?? buildCoverageTargets("domain", files, plan.recommendedRunner.name);
@@ -5363,15 +5403,22 @@ async function buildDomainScenarioDraftFlow(
     ...filterSelectorsForFiles(baseFlows.flatMap((flow) => flow.selectors), files),
     ...(await inferFlowSelectors(plan.root, files, runner)),
   ]);
+  const refinedSteps = refineStepsForInferredSelectors(steps, selectors);
   const setupHints = uniqueSetupHints([
     ...filterSetupHintsForFiles(baseFlows.flatMap((flow) => flow.setupHints), files),
     ...(shouldInferDomainScenarioSetupHints(baseFlow) ? await inferFlowSetupHints(plan.root, files, "domain") : []),
   ]);
+  const draftScenario = {
+    ...scenario,
+    title,
+    intent: reason,
+    checks: refinedSteps,
+  };
   const flow: Omit<DraftE2eFlow, "languageBrief"> = {
     title,
     reason,
     files,
-    steps,
+    steps: refinedSteps,
     coverage,
     coverageEvidence: baseFlow?.coverageEvidence ?? [],
     entrypoints,
@@ -5948,10 +5995,14 @@ function buildMaestroDraft(plan: E2ePlanResult, flow: E2eFlow): string {
   return lines.join("\n");
 }
 
+type MaestroDraftCommand =
+  | { kind: "tapOn" | "assertVisible" | "swipe"; value: string }
+  | { kind: "inputText"; target: string; text: string };
+
 function maestroCommandForStep(
   step: string,
   selectors: E2eSelector[],
-): { kind: "tapOn" | "assertVisible" | "swipe"; value: string } {
+): MaestroDraftCommand {
   if (isGestureStep(step)) {
     return {
       kind: "swipe",
@@ -5959,10 +6010,17 @@ function maestroCommandForStep(
     };
   }
   const selector = takeSelectorForStep(selectors, step);
-  if (isVerificationStep(step) && !isInteractionStep(step)) {
+  if (isAssertionStep(step)) {
     return {
       kind: "assertVisible",
       value: selector ? maestroSelectorValue(selector) : quoteYaml(`TODO: ${step}`),
+    };
+  }
+  if (selector && isInputSelector(selector) && isInteractionStep(step)) {
+    return {
+      kind: "inputText",
+      target: maestroSelectorValue(selector),
+      text: quoteYaml(sampleInputForStepOrSelector(step, selector.value)),
     };
   }
   return {
@@ -6948,7 +7006,10 @@ function countTodos(content: string): number {
   return [...content.matchAll(/\bTODO\b/g)].length;
 }
 
-function formatMaestroCommand(command: { kind: "tapOn" | "assertVisible" | "swipe"; value: string }): string[] {
+function formatMaestroCommand(command: MaestroDraftCommand): string[] {
+  if (command.kind === "inputText") {
+    return [`- tapOn: ${command.target}`, `- inputText: ${command.text}`];
+  }
   return [`- ${command.kind}: ${command.value}`];
 }
 
@@ -6956,12 +7017,27 @@ function takeSelectorForStep(selectors: E2eSelector[], step: string): E2eSelecto
   if (/^launch\b/i.test(step)) {
     return undefined;
   }
-  const index = selectors.findIndex((selector) => selectorMatchesStep(selector, step));
+  if (isInputStep(step)) {
+    const inputIndex = selectors.findIndex((selector) => isInputSelector(selector) && selectorMatchesStep(selector, step));
+    if (inputIndex >= 0) {
+      const [selector] = selectors.splice(inputIndex, 1);
+      return selector;
+    }
+    const fallbackInputIndex = selectors.findIndex(isInputSelector);
+    if (fallbackInputIndex >= 0) {
+      const [selector] = selectors.splice(fallbackInputIndex, 1);
+      return selector;
+    }
+  }
+  if (!isInteractionStep(step) && !isVerificationStep(step) && !canUsePrimarySelector(step)) {
+    return undefined;
+  }
+  const index = selectors.findIndex((selector) => !isInputSelector(selector) && selectorMatchesStep(selector, step));
   if (index >= 0) {
     const [selector] = selectors.splice(index, 1);
     return selector;
   }
-  if (isVerificationStep(step) && !isInteractionStep(step)) {
+  if (isAssertionStep(step)) {
     const assertionIndex = selectors.findIndex((selector) => selectorCanSupportAssertion(selector));
     if (assertionIndex >= 0) {
       const [selector] = selectors.splice(assertionIndex, 1);
@@ -6984,7 +7060,8 @@ function selectorMatchesStep(selector: E2eSelector, step: string): boolean {
 }
 
 function canUsePrimarySelector(step: string): boolean {
-  return /\b(?:primary|action|submit|continue|complete|fill|input|enter|upload)\b/i.test(step) && !/^launch\b/i.test(step);
+  return /^(?:complete|submit|continue|fill|input|enter|upload)\b/i.test(step) ||
+    /\bprimary action\b/i.test(step);
 }
 
 function selectorCanDriveInteraction(selector: E2eSelector): boolean {
@@ -6996,6 +7073,18 @@ function selectorCanDriveInteraction(selector: E2eSelector): boolean {
 
 function selectorCanSupportAssertion(selector: E2eSelector): boolean {
   return selector.kind !== "placeholder" && !isPassiveControlLabel(selector.value);
+}
+
+function isInputSelector(selector: E2eSelector): boolean {
+  return selector.kind === "input-test-id" ||
+    selector.kind === "input-web-test-id" ||
+    selector.kind === "input-accessibility-label" ||
+    selector.kind === "input-aria-label" ||
+    selector.kind === "placeholder";
+}
+
+function isInputStep(step: string): boolean {
+  return /\b(?:fill|input|enter|type|provide|write|realistic data)\b/i.test(step);
 }
 
 function isPassiveControlLabel(value: string): boolean {
@@ -7031,7 +7120,12 @@ function keywordsForStep(step: string): string[] {
 }
 
 function maestroSelectorValue(selector: E2eSelector): string {
-  if (selector.kind === "test-id" || selector.kind === "web-test-id") {
+  if (
+    selector.kind === "test-id" ||
+    selector.kind === "web-test-id" ||
+    selector.kind === "input-test-id" ||
+    selector.kind === "input-web-test-id"
+  ) {
     return `{ id: ${quoteYaml(selector.value)} }`;
   }
   return quoteYaml(selector.value);
@@ -7039,7 +7133,12 @@ function maestroSelectorValue(selector: E2eSelector): string {
 
 function playwrightLocator(selector: E2eSelector): string {
   const value = quoteJs(selector.value);
-  if (selector.kind === "test-id" || selector.kind === "web-test-id") {
+  if (
+    selector.kind === "test-id" ||
+    selector.kind === "web-test-id" ||
+    selector.kind === "input-test-id" ||
+    selector.kind === "input-web-test-id"
+  ) {
     return `page.getByTestId("${value}")`;
   }
   if (selector.kind === "role-button") {
@@ -7051,7 +7150,12 @@ function playwrightLocator(selector: E2eSelector): string {
   if (selector.kind === "placeholder") {
     return `page.getByPlaceholder("${value}")`;
   }
-  if (selector.kind === "accessibility-label" || selector.kind === "aria-label") {
+  if (
+    selector.kind === "accessibility-label" ||
+    selector.kind === "aria-label" ||
+    selector.kind === "input-accessibility-label" ||
+    selector.kind === "input-aria-label"
+  ) {
     return `page.getByLabel("${value}")`;
   }
   return `page.getByText("${value}")`;
@@ -7059,16 +7163,20 @@ function playwrightLocator(selector: E2eSelector): string {
 
 function playwrightActionForStep(selector: E2eSelector, locator: string, step: string): string[] {
   const body = [`// Step intent: ${step}`];
-  if (isVerificationStep(step) && !isInteractionStep(step)) {
+  if (isAssertionStep(step)) {
     body.push(`await expect(${locator}).toBeVisible();`);
     return body;
   }
-  if (selector.kind === "placeholder") {
-    body.push(`await ${locator}.fill("${quoteJs(playwrightSampleInput(selector.value))}");`);
+  if (isInputSelector(selector)) {
+    body.push(`await ${locator}.fill("${quoteJs(sampleInputForStepOrSelector(step, selector.value))}");`);
     return body;
   }
   body.push(`await ${locator}.click();`);
   return body;
+}
+
+function sampleInputForStepOrSelector(step: string, selector: string): string {
+  return playwrightSampleInput(`${step} ${selector}`);
 }
 
 function playwrightSampleInput(label: string): string {
@@ -7092,33 +7200,72 @@ function isGestureStep(step: string): boolean {
 }
 
 function isInteractionStep(step: string): boolean {
-  return /^(?:choose|select|open|tap|click|create|save|return|switch|exercise)\b/i.test(step);
+  return /^(?:choose|select|open|tap|click|create|save|submit|continue|complete|renew|apply|approve|confirm|send|fill|input|enter|type|provide|return|switch|exercise|activate)\b/i.test(step);
 }
 
 function isVerificationStep(step: string): boolean {
   return /\b(?:verify|assert|visible|appears|renders|available|usable|remains|survive)\b/i.test(step);
 }
 
+function isAssertionStep(step: string): boolean {
+  return isVerificationStep(step);
+}
+
 function extractSelectorsFromText(file: string, text: string, runner: E2eRunnerName): E2eSelector[] {
   const selectors: E2eSelector[] = [];
   const canUseWebSelectors = runner === "playwright" || runner === "manual";
+  const inputSelectors = [
+    ...extractInputAttributeSelectors(file, text, ["testID"], "input-test-id"),
+    ...extractInputAttributeSelectors(file, text, ["accessibilityLabel"], "input-accessibility-label"),
+  ];
 
+  selectors.push(...inputSelectors);
   selectors.push(
-    ...extractAttributeSelectors(file, text, ["testID"], "test-id"),
-    ...extractAttributeSelectors(file, text, ["accessibilityLabel"], "accessibility-label"),
+    ...withoutSelectorValueDuplicates(extractAttributeSelectors(file, text, ["testID"], "test-id"), inputSelectors),
+    ...withoutSelectorValueDuplicates(
+      extractAttributeSelectors(file, text, ["accessibilityLabel"], "accessibility-label"),
+      inputSelectors,
+    ),
     ...extractAttributeSelectors(file, text, ["placeholder"], "placeholder"),
   );
 
   if (canUseWebSelectors) {
+    const webInputSelectors = [
+      ...extractInputAttributeSelectors(file, text, ["data-testid", "data-test"], "input-web-test-id"),
+      ...extractInputAttributeSelectors(file, text, ["aria-label"], "input-aria-label"),
+    ];
+    selectors.push(...webInputSelectors);
     selectors.push(
-      ...extractAttributeSelectors(file, text, ["data-testid", "data-test"], "web-test-id"),
-      ...extractAttributeSelectors(file, text, ["aria-label"], "aria-label"),
+      ...withoutSelectorValueDuplicates(
+        extractAttributeSelectors(file, text, ["data-testid", "data-test"], "web-test-id"),
+        webInputSelectors,
+      ),
+      ...withoutSelectorValueDuplicates(extractAttributeSelectors(file, text, ["aria-label"], "aria-label"), webInputSelectors),
       ...extractRoleSelectorsFromText(file, text),
     );
   }
 
   selectors.push(...extractTextNodeSelectors(file, text));
   return selectors.filter((selector) => isUsefulSelector(selector.value));
+}
+
+function extractInputAttributeSelectors(
+  file: string,
+  text: string,
+  attributes: string[],
+  kind: E2eSelectorKind,
+): E2eSelector[] {
+  const selectors: E2eSelector[] = [];
+  const inputElementMatcher = /<(?:TextInput|input|textarea)\b[^>]*>/g;
+  for (const elementMatch of text.matchAll(inputElementMatcher)) {
+    selectors.push(...extractAttributeSelectors(file, elementMatch[0], attributes, kind));
+  }
+  return selectors;
+}
+
+function withoutSelectorValueDuplicates(selectors: E2eSelector[], existing: E2eSelector[]): E2eSelector[] {
+  const existingKeys = new Set(existing.map((selector) => `${selector.file}\0${selector.value}`));
+  return selectors.filter((selector) => !existingKeys.has(`${selector.file}\0${selector.value}`));
 }
 
 function extractAttributeSelectors(
@@ -7330,13 +7477,19 @@ function uniqueSelectors(selectors: E2eSelector[]): E2eSelector[] {
 }
 
 function selectorRank(kind: E2eSelectorKind): number {
-  if (kind === "test-id" || kind === "web-test-id") {
+  if (
+    kind === "input-test-id" ||
+    kind === "input-web-test-id" ||
+    kind === "input-accessibility-label" ||
+    kind === "input-aria-label" ||
+    kind === "placeholder"
+  ) {
     return 0;
   }
-  if (kind === "accessibility-label" || kind === "aria-label") {
+  if (kind === "test-id" || kind === "web-test-id") {
     return 1;
   }
-  if (kind === "placeholder") {
+  if (kind === "accessibility-label" || kind === "aria-label") {
     return 2;
   }
   if (kind === "role-button" || kind === "role-link") {

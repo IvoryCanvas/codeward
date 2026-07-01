@@ -1630,7 +1630,64 @@ test("generateE2eDraft names changed component actions before generic primary jo
   assert.match(draftText, /Flow: Offer Content URL Submit/);
   assert.match(draftText, /Content URL Submit/);
   assert.match(draftText, /src\/features\/offer\/components\/ContentUrlSubmitModal\.tsx/);
+  assert.match(draftText, /tapOn: \{ id: "offer-content-url" \}/);
+  assert.match(draftText, /inputText: "https:\/\/example\.com\/codeward"/);
   assert.match(draftText, /offer-content-url-submit/);
+});
+
+test("generateE2eDraft fills inferred web input selectors before submitting actions", async () => {
+  const root = await makeTempRepo();
+  await initGitRepo(root);
+  await mkdir(path.join(root, "src/pages/offer"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "playwright test",
+      },
+      dependencies: {
+        "@playwright/test": "^1.56.0",
+        next: "^15.0.0",
+        "react-dom": "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(
+    path.join(root, "src/pages/offer/contentUrl.tsx"),
+    "export default function ContentUrlPage() { return null; }\n",
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  await git(root, ["branch", "-M", "main"]);
+
+  await git(root, ["switch", "-c", "feature/content-url-submit"]);
+  await writeFile(
+    path.join(root, "src/pages/offer/contentUrl.tsx"),
+    [
+      "export default function ContentUrlPage() {",
+      "  return <form>",
+      "    <input data-testid=\"offer-content-url\" aria-label=\"Content URL\" />",
+      "    <button data-testid=\"offer-content-url-submit\">Submit URL</button>",
+      "  </form>;",
+      "}",
+    ].join("\n"),
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "add content url form"]);
+
+  const draft = await generateE2eDraft(root, {
+    base: "main",
+    head: "HEAD",
+    output: "tests/e2e",
+    runner: "playwright",
+  });
+  const draftFile = draft.files.find((file) => file.flowTitle === "Offer Content URL");
+  assert.ok(draftFile);
+  const spec = await readFile(path.join(root, draftFile.path), "utf8");
+
+  assert.match(spec, /await page\.getByTestId\("offer-content-url"\)\.fill\("https:\/\/example\.com\/codeward"\)/);
+  assert.match(spec, /await page\.getByTestId\("offer-content-url-submit"\)\.click\(\)/);
+  assert.doesNotMatch(spec, /page\.getByTestId\("offer-content-url"\)\.click\(\)/);
 });
 
 test("generateE2ePlan ranks action scenarios by changed domain impact without one domain crowding out others", async () => {
