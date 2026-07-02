@@ -65,6 +65,7 @@ export type E2eSelectorKind =
 
 export interface E2ePlanOptions extends TestPlanOptions {
   runner?: E2eRunnerName;
+  manifestPath?: string;
 }
 
 export interface E2eDraftOptions extends E2ePlanOptions {
@@ -428,7 +429,7 @@ export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions
   const coreFlows = matchCoreFlows(coreFlowManifest, coreFlowChangedFiles);
   const domainManifest = await loadDomainManifest(coreFlowRoot);
   const domains = matchDomains(domainManifest, coreFlowChangedFiles);
-  const verificationManifest = await loadVerificationManifest(coreFlowRoot);
+  const verificationManifest = await loadVerificationManifest(coreFlowRoot, { manifestPath: options.manifestPath });
   const verificationManifestMatches = matchVerificationManifest(verificationManifest, coreFlowChangedFiles);
   const domainLanguage = await buildDomainLanguageSummary(root, testPlan.changedFiles, coreFlows, domains);
   const workspaceTargets = await buildWorkspaceTargets(root, testPlan);
@@ -2744,8 +2745,23 @@ function appendVerificationManifestMatchesMarkdown(lines: string[], matches: Ver
     lines.push(`- Kind: ${match.kind}`);
     lines.push(`- Confidence: ${match.confidence}`);
     lines.push(`- Why this was recommended: ${escapeMarkdownInline(match.reason)}`);
+    if (match.evidenceSources.length > 0) {
+      lines.push(`- Evidence sources: ${match.evidenceSources.map(escapeMarkdownInline).join(", ")}`);
+    }
     lines.push(`- Manifest evidence: \`${escapeMarkdownInline(match.manifestPath)}\``);
     lines.push(`- If this is wrong: update \`${escapeMarkdownInline(match.updatePath)}\``);
+    if (match.nextActions.length > 0) {
+      lines.push("- Next actions:");
+      for (const action of match.nextActions.slice(0, 4)) {
+        lines.push(`  - ${escapeMarkdownInline(action)}`);
+      }
+    }
+    if (match.repairHints.length > 0) {
+      lines.push("- Repair hints:");
+      for (const hint of match.repairHints.slice(0, 4)) {
+        lines.push(`  - ${escapeMarkdownInline(hint)}`);
+      }
+    }
     if (match.matchedFiles.length > 0) {
       lines.push("- Matched files:");
       for (const file of match.matchedFiles.slice(0, maxFilesPerFlow)) {
@@ -4560,6 +4576,19 @@ function refineStepsForInferredSelectors(steps: string[], selectors: E2eSelector
   return uniqueStrings(refined);
 }
 
+function refineManifestStepsForInferredSelectors(steps: string[], selectors: E2eSelector[]): string[] {
+  const inputSelector = selectors.find(isInputSelector);
+  const actionSelector = selectors.find((selector) => selectorCanDriveInteraction(selector) && !isInputSelector(selector));
+  if (!inputSelector || !actionSelector || steps.some(isInputStep)) {
+    return steps;
+  }
+  return uniqueStrings([
+    `Fill ${selectorStepLabel(inputSelector)} with realistic data.`,
+    `${actionVerbForSelector(actionSelector)} using ${selectorStepLabel(actionSelector)}.`,
+    ...steps,
+  ]);
+}
+
 function exerciseStepSubject(step: string): string | undefined {
   const exerciseMatch = step.match(/^Exercise\s+(.+?)\s+with realistic data(?:\s+from[^.]*)?\.?$/i);
   if (exerciseMatch?.[1]) {
@@ -5995,7 +6024,7 @@ async function buildManifestDraftFlow(
   checkMatches: VerificationManifestMatch[],
   baseFlows: E2eFlow[],
 ): Promise<DraftE2eFlow> {
-  const relatedChecks = checkMatches.filter((check) => check.id.startsWith(`${match.id}:`));
+  const relatedChecks = checkMatches.filter((check) => check.id.startsWith(`${match.id}.`));
   const manifestFiles = normalizeScenarioFilesForRoot(plan, match.matchedFiles);
   const baseFlow = bestBaseFlowForManifestMatch(manifestFiles, baseFlows);
   const files = uniqueStrings(manifestFiles.length > 0 ? manifestFiles : (baseFlow?.files ?? [])).slice(0, 20);
@@ -6012,7 +6041,10 @@ async function buildManifestDraftFlow(
     ...filterSelectorsForFiles(baseFlows.flatMap((flow) => flow.selectors), files),
     ...(await inferFlowSelectors(plan.root, files, runner)),
   ]);
-  const refinedSteps = refineStepsForInferredSelectors(manifestSteps.length > 0 ? manifestSteps : (baseFlow?.steps ?? []), selectors);
+  const refinedSteps = refineManifestStepsForInferredSelectors(
+    refineStepsForInferredSelectors(manifestSteps.length > 0 ? manifestSteps : (baseFlow?.steps ?? []), selectors),
+    selectors,
+  );
   const setupHints = uniqueSetupHints([
     ...filterSetupHintsForFiles(baseFlows.flatMap((flow) => flow.setupHints), files),
     ...(await inferFlowSetupHints(plan.root, files, "domain")),

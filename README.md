@@ -4,13 +4,26 @@
 [![npm version](https://img.shields.io/npm/v/@ivorycanvas/codeward.svg)](https://www.npmjs.com/package/@ivorycanvas/codeward)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**PR diff in. Domain-aware verification flows and E2E drafts out. No cloud. No LLM token.**
+**Stop re-prompting AI for QA context. CodeWard turns repo-local QA memory into PR-specific E2E drafts. No cloud. No LLM token.**
 
-CodeWard is a local-first CLI that reads git changes, repository structure, and optional team-owned manifests, then turns a branch into reviewable verification guidance and draft E2E tests.
+CodeWard is a local-first CLI that builds and uses a repository-level verification manifest, maps git changes to product domains, flows, and checks, then turns a branch into reviewable verification guidance and draft E2E tests.
 
 It is built for the moment when a reviewer asks: "This PR looks plausible, but which user flow could it break, and what should we test before merge?"
 
 CodeWard does not call an LLM API, upload source code, or require a service account. It runs in the repository you already have.
+
+The core loop is intentionally simple:
+
+```txt
+Repo QA memory
+  -> .codeward/manifest.yaml
+
+PR diff
+  -> impacted domain / flow / check
+
+CodeWard output
+  -> explainable E2E draft + fixture, selector, and validation gaps
+```
 
 ## Install & Quick Start
 
@@ -28,10 +41,39 @@ Run the first local scan:
 pnpm exec codeward scan .
 ```
 
+Preview the repo-local QA context CodeWard can see:
+
+```sh
+pnpm exec codeward manifest context .
+```
+
+Create a reviewable verification manifest from the branch you want to treat as baseline:
+
+```sh
+pnpm exec codeward manifest init .
+```
+
 Preview PR-specific E2E drafts without writing files:
 
 ```sh
 pnpm exec codeward e2e draft . --base origin/main --head HEAD --dry-run
+```
+
+For the strongest first result, create the manifest from the default branch, commit it, and let PR branches reuse that team QA memory:
+
+```sh
+git switch main
+pnpm exec codeward manifest context .
+pnpm exec codeward manifest init .
+git add .codeward/manifest.yaml
+git commit -m "Add CodeWard verification manifest"
+```
+
+Preview adoption without writing a manifest into the target repository:
+
+```sh
+pnpm exec codeward manifest init . --write /tmp/codeward-manifest.yaml
+pnpm exec codeward e2e draft . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD --dry-run
 ```
 
 Or run CodeWard once without adding a dependency:
@@ -58,7 +100,7 @@ CodeWard reads the changed files and project signals:
 Input
 - git diff: origin/main...HEAD
 - project structure: package.json, routes, test config, selectors
-- optional team context: .codeward/domains.yml, .codeward/flows.yml
+- optional team context: .codeward/manifest.yaml, CONTEXT.md, ADRs, goals, QA runbooks
 ```
 
 Then it returns reviewable verification work:
@@ -83,10 +125,13 @@ Files: 0 created, 1 previewed, 0 skipped
 
 - preview: tests/e2e/checkout-purchase.spec.ts
   Flow: Checkout purchase
+  Source: verification-manifest
+  Evidence: .codeward/manifest.yaml > flows.checkout-checkout-purchase.anchors
   Actor: Customer
   Trigger: Open route /checkout.
   Goal: Complete checkout with realistic form data.
   Success signal: confirmation state is visible after submit
+  If wrong: update .codeward/manifest.yaml > flows.checkout-checkout-purchase.anchors
   Runnable status: near-runnable
 
 Required action items:
@@ -99,6 +144,10 @@ The generated draft reads like the user journey instead of a generic file checkl
 
 ```ts
 test("Checkout purchase", async ({ page }) => {
+  // Verification manifest evidence:
+  // Flow: Checkout Purchase
+  // .codeward/manifest.yaml > flows.checkout-checkout-purchase.anchors
+
   await test.step("Open route /checkout.", async () => {
     await page.goto("/checkout");
   });
@@ -108,7 +157,7 @@ test("Checkout purchase", async ({ page }) => {
   });
 
   await test.step("Submit checkout.", async () => {
-    await page.getByRole("button", { name: "Complete purchase" }).click();
+    await page.getByTestId("checkout-submit").click();
   });
 
   await expect(page.getByText("Order confirmed")).toBeVisible();
@@ -116,6 +165,21 @@ test("Checkout purchase", async ({ page }) => {
 ```
 
 See [docs/quickstart-demo.md](docs/quickstart-demo.md) for a compact walkthrough, [docs/manifest.md](docs/manifest.md) for the verification manifest loop, and [docs/e2e-output-examples.md](docs/e2e-output-examples.md) for more output shapes.
+
+## Why This Is Different
+
+Recorders such as browser or mobile test studios are useful when you already know the flow to exercise. CodeWard starts one step earlier: it asks what the PR changed, which repo-owned QA memory applies, and what test artifact should exist before merge.
+
+A good CodeWard result should answer:
+
+- which product flow changed
+- which manifest domain, flow, and checks caused the recommendation
+- which draft test file was generated or previewed
+- which success, failure, edge, contract, or visual cases the draft covers
+- which selector, fixture, auth, runner, or validation gaps still block trusted regression evidence
+- which manifest path to edit when the recommendation is wrong
+
+That is the product bet: one human correction to the repo-local manifest should improve future PR recommendations without another LLM prompt.
 
 ## What CodeWard Is For
 
@@ -127,6 +191,8 @@ CodeWard is intentionally small:
 - verification-focused: it tells reviewers what evidence is missing, not how to style code
 - domain-aware E2E drafting: it turns branch changes into flow language, draft specs, readiness summaries, and action items
 - repo-local verification base: shared manifests can be committed, while generated run history stays ignored by default
+- context-aware baseline generation: manifest init can use repo-local context, ADRs, goals, agent instructions, harness files, skills, and runbooks as advisory bootstrap signals
+- harness/skill role hints: instruction-derived context is classified as agent skill, harness config, workflow lifecycle, verification rubric, safety policy, release policy, or test runner context
 - ecosystem-aware: it suggests validation commands for JavaScript/TypeScript, Python, Go, Rust, Gradle, and Maven projects
 - CI-friendly: text, JSON, Markdown, and SARIF output are supported
 - explainable: every finding includes a concrete fix
@@ -151,6 +217,8 @@ CodeWard는 AI 코딩 에이전트에게 레포지토리를 맡기기 전에 빠
 ```sh
 pnpm exec codeward scan .
 pnpm exec codeward verify . --base origin/main --head HEAD --pr-body-file pr-body.md
+pnpm exec codeward manifest context .
+pnpm exec codeward manifest init .
 pnpm exec codeward manifest validate .
 pnpm exec codeward manifest explain . --base origin/main --head HEAD
 pnpm exec codeward e2e draft . --base origin/main --head HEAD --dry-run
@@ -238,6 +306,7 @@ That means CodeWard is most valuable when it becomes the team's verification bas
 | `codeward e2e draft . --base origin/main --head HEAD` | Write generated Maestro, Playwright, or manual E2E drafts with flow language, readiness summaries, and action items. |
 | `codeward manifest init .` | Create a baseline `.codeward/manifest.yaml` with inferred domains, flows, anchors, checks, source, and confidence. |
 | `codeward manifest validate .` | Check whether `.codeward/manifest.yaml` is present, parseable, anchored to real files, and ready to shape PR evidence. |
+| `codeward manifest context .` | Preview repo-local context sources, role classifications, validation commands, safety rules, and manifest repair diagnostics. |
 | `codeward manifest explain . --base origin/main --head HEAD` | Explain which manifest domains, flows, and checks match the current branch and which manifest path to edit if the match is wrong. |
 | `codeward flows init .` | Create a starter `.codeward/flows.yml` for team-approved core flow definitions. |
 | `codeward flows suggest . --base origin/main --head HEAD` | Generate suggested `.codeward/flows.yml` entries with commit-readiness guidance from changed files and E2E plan context. |
@@ -277,8 +346,11 @@ Run `codeward manifest init .` to create a baseline verification manifest. CodeW
 ```sh
 git switch main
 git pull
+codeward manifest context .
 codeward manifest init . --write .codeward/manifest.yaml
 ```
+
+`codeward manifest context .` is a read-only preview of the repo-local knowledge CodeWard can see before writing the manifest. It reports context sources such as `CONTEXT.md`, ADRs, goals, runbooks, agent instructions, harness files, and skills, then shows role classifications, validation commands, safety rules, and diagnostics for stale or missing context.
 
 After the baseline is committed, feature branches should usually run `manifest explain`, `e2e plan`, or `e2e draft` against the PR base such as `origin/main`. The manifest is not meant to be perfect on the first run. It is meant to start the feedback loop: CodeWard recommends E2E work from the manifest, shows why a recommendation happened, and points to the manifest path to edit when the recommendation is wrong.
 
@@ -297,8 +369,16 @@ Why this was recommended:
 Manifest evidence:
 - .codeward/manifest.yaml > flows.campaign-application-complete.anchors
 
+Next actions:
+- Draft or review E2E coverage for the Campaign Application Complete flow.
+- Cover the declared checks: Submit content URL successfully; Show validation error for invalid content URL.
+
 If this is wrong:
 - Update .codeward/manifest.yaml > flows.campaign-application-complete.anchors
+
+Repair hints:
+- If these files do not belong to this flow, update .codeward/manifest.yaml > flows.campaign-application-complete.anchors.
+- If the recommended assertions feel vague, rewrite .codeward/manifest.yaml > flows.campaign-application-complete.checks in team language.
 ```
 
 When a matched manifest flow has an entry route and checks, `codeward e2e draft` promotes it ahead of heuristic candidates. The generated Playwright, Maestro, or manual draft carries the manifest evidence, uses the manifest route as an entrypoint when possible, and turns manifest checks into draft steps and required coverage notes. This is the core cost-saving loop: humans fix durable QA context once, then future PRs start from a stronger draft instead of a blank test file.
