@@ -240,6 +240,7 @@ That means CodeWard is most valuable when it becomes the team's verification bas
 | `codeward e2e draft . --base origin/main --head HEAD` | Write generated Maestro, Playwright, or manual E2E drafts with flow language, readiness summaries, and action items. |
 | `codeward manifest init .` | Create a baseline `.codeward/manifest.yaml` with inferred domains, flows, anchors, checks, source, and confidence. |
 | `codeward manifest validate .` | Check whether `.codeward/manifest.yaml` is present, parseable, anchored to real files, and ready to shape PR evidence. |
+| `codeward manifest context .` | Preview repo-local context sources, role classifications, validation commands, safety rules, and manifest repair diagnostics. |
 | `codeward manifest explain . --base origin/main --head HEAD` | Explain which manifest domains, flows, and checks match the current branch and which manifest path to edit if the match is wrong. |
 | `codeward flows init .` | Create a starter `.codeward/flows.yml` for team-approved core flow definitions. |
 | `codeward flows suggest . --base origin/main --head HEAD` | Generate suggested `.codeward/flows.yml` entries with commit-readiness guidance from changed files and E2E plan context. |
@@ -279,8 +280,11 @@ Run `codeward manifest init .` to create a baseline verification manifest. CodeW
 ```sh
 git switch main
 git pull
+codeward manifest context .
 codeward manifest init . --write .codeward/manifest.yaml
 ```
+
+`codeward manifest context .` is a read-only preview of the repo-local knowledge CodeWard can see before writing the manifest. It reports context sources such as `CONTEXT.md`, ADRs, goals, runbooks, agent instructions, harness files, and skills, then shows role classifications, validation commands, safety rules, and diagnostics for stale or missing context.
 
 After the baseline is committed, feature branches should usually run `manifest explain`, `e2e plan`, or `e2e draft` against the PR base such as `origin/main`. The manifest is not meant to be perfect on the first run. It is meant to start the feedback loop: CodeWard recommends E2E work from the manifest, shows why a recommendation happened, and points to the manifest path to edit when the recommendation is wrong.
 

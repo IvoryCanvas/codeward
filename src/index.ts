@@ -44,9 +44,11 @@ export {
   writeSuggestedManifest,
 } from "./manifest-suggestions.js";
 export {
+  analyzeVerificationManifestContext,
   changedFilesRelativeToManifestRoot,
   defaultVerificationManifestPath,
   explainVerificationManifest,
+  formatVerificationManifestContextResult,
   formatVerificationManifestExplainResult,
   formatVerificationManifestInitResult,
   formatVerificationManifestValidationResult,
@@ -148,6 +150,9 @@ export type {
   VerificationManifestCheckType,
   VerificationManifestConfidence,
   VerificationManifestContext,
+  VerificationManifestContextOptions,
+  VerificationManifestContextResult,
+  VerificationManifestContextRoleSummary,
   VerificationManifestCriticality,
   VerificationManifestDomain,
   VerificationManifestFlow,

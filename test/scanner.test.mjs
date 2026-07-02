@@ -7,9 +7,11 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
+  analyzeVerificationManifestContext,
   buildDoctorResult,
   explainVerificationManifest,
   evaluateChangeReadiness,
+  formatVerificationManifestContextResult,
   formatVerificationManifestExplainResult,
   formatVerificationManifestValidationResult,
   formatMarkdownEvalReport,
@@ -4073,6 +4075,9 @@ test("manifest init captures advisory instruction context", async () => {
   const manifestText = await readFile(path.join(root, ".codeward/manifest.yaml"), "utf8");
   const manifest = await loadVerificationManifest(root);
   const validation = await validateVerificationManifest(root);
+  const contextResult = await analyzeVerificationManifestContext(root);
+  const contextMarkdown = formatVerificationManifestContextResult(contextResult, "markdown");
+  const cliContext = await execFileAsync(process.execPath, [cliPath, "manifest", "context", root, "--format", "markdown"]);
   const checkoutDomain = manifest.domains.find((domain) => domain.id === "checkout");
 
   assert.equal(result.summary.contextSources >= 2, true);
@@ -4096,6 +4101,23 @@ test("manifest init captures advisory instruction context", async () => {
   assert.match(manifestText, /agent-skill/);
   assert.match(manifestText, /validationCommands:/);
   assert.match(manifestText, /safetyRules:/);
+  assert.equal(contextResult.summary.contextSources >= 4, true);
+  assert.equal(contextResult.summary.validationCommands, 1);
+  assert.equal(contextResult.summary.safetyRules, 2);
+  assert.ok(
+    contextResult.roleSummary.some(
+      (item) => item.role === "agent-skill" && item.sources.includes(".agent-core/skills/verification-layer.md"),
+    ),
+  );
+  assert.ok(contextResult.roleSummary.some((item) => item.role === "verification-rubric"));
+  assert.match(contextMarkdown, /CodeWard Manifest Context/);
+  assert.match(contextMarkdown, /Role Summary/);
+  assert.match(contextMarkdown, /Context Sources/);
+  assert.match(contextMarkdown, /AGENTS\.md/);
+  assert.match(contextMarkdown, /Safety Rules/);
+  assert.match(contextMarkdown, /No context diagnostics/);
+  assert.match(cliContext.stdout, /CodeWard Manifest Context/);
+  assert.match(cliContext.stdout, /agent-skill/);
   assert.ok(validation.issues.some((issue) => issue.path.includes("context.source")));
 });
 

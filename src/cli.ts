@@ -27,8 +27,10 @@ import {
   writeSuggestedManifest,
 } from "./manifest-suggestions.js";
 import {
+  analyzeVerificationManifestContext,
   defaultVerificationManifestPath,
   explainVerificationManifest,
+  formatVerificationManifestContextResult,
   formatVerificationManifestExplainResult,
   formatVerificationManifestInitResult,
   formatVerificationManifestValidationResult,
@@ -384,7 +386,7 @@ async function main(argv: string[]): Promise<number> {
       printManifestHelp();
       return 0;
     }
-    if (subcommand !== "init" && subcommand !== "validate" && subcommand !== "explain") {
+    if (subcommand !== "init" && subcommand !== "validate" && subcommand !== "explain" && subcommand !== "context") {
       throw new Error(`Unknown manifest subcommand: ${subcommand}`);
     }
     const options = parseOptions(subcommandRest);
@@ -405,6 +407,15 @@ async function main(argv: string[]): Promise<number> {
       });
       const format = manifestCommandFormat(options.format ?? (options.json ? "json" : "markdown"));
       await printOrWrite(formatVerificationManifestExplainResult(result, format), options.output);
+      return 0;
+    }
+    if (subcommand === "context") {
+      const result = await analyzeVerificationManifestContext(options.path, {
+        workspaceRoot: options.workspaceRoot,
+        maxFiles: options.maxFiles,
+      });
+      const format = manifestCommandFormat(options.format ?? (options.json ? "json" : "markdown"));
+      await printOrWrite(formatVerificationManifestContextResult(result, format), options.output);
       return 0;
     }
     const result = await writeVerificationManifestBaseline(options.path, {
@@ -894,6 +905,7 @@ Repository-level verification manifest.
 Usage:
   codeward manifest init [path] [--workspace-root <path>] [--write <file>] [--max-files <n>] [--force] [--format json] [--output <file>]
   codeward manifest validate [path] [--workspace-root <path>] [--format text|json|markdown] [--output <file>]
+  codeward manifest context [path] [--workspace-root <path>] [--max-files <n>] [--format text|json|markdown] [--output <file>]
   codeward manifest explain [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format text|json|markdown] [--output <file>]
 
 Examples:
@@ -901,6 +913,7 @@ Examples:
   codeward manifest init services/offer --workspace-root .
   codeward manifest init . --write .codeward/manifest.yaml --force
   codeward manifest validate .
+  codeward manifest context .
   codeward manifest explain . --base origin/main --head HEAD
 `);
 }

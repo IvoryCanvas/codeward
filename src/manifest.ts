@@ -203,6 +203,38 @@ export interface VerificationManifestExplainResult {
   matches: VerificationManifestMatch[];
 }
 
+export interface VerificationManifestContextOptions {
+  workspaceRoot?: string;
+  maxFiles?: number;
+}
+
+export interface VerificationManifestContextRoleSummary {
+  role: VerificationManifestInstructionRole;
+  sources: string[];
+}
+
+export interface VerificationManifestContextResult {
+  tool: {
+    name: string;
+    version: string;
+  };
+  root: string;
+  workspaceRoot?: string;
+  manifestRoot: string;
+  manifestPath?: string;
+  generatedAt: string;
+  context?: VerificationManifestContext;
+  roleSummary: VerificationManifestContextRoleSummary[];
+  diagnostics: VerificationManifestValidationIssue[];
+  summary: {
+    contextSources: number;
+    roles: number;
+    validationCommands: number;
+    safetyRules: number;
+    diagnostics: number;
+  };
+}
+
 const manifestCandidates = [
   ".codeward/manifest.yaml",
   ".codeward/manifest.yml",
@@ -421,6 +453,42 @@ export async function explainVerificationManifest(
   };
 }
 
+export async function analyzeVerificationManifestContext(
+  rootInput: string,
+  options: VerificationManifestContextOptions = {},
+): Promise<VerificationManifestContextResult> {
+  const root = path.resolve(rootInput);
+  const manifestRoot = path.resolve(options.workspaceRoot ?? rootInput);
+  const manifest = await loadVerificationManifest(manifestRoot);
+  const files = await collectProjectFiles(root, options.maxFiles ?? defaultMaxManifestFiles);
+  const scannedContext = buildManifestContext(root, manifestRoot, files);
+  const context = manifest.context ?? scannedContext;
+  const roleSummary = summarizeContextRoles(context);
+  const diagnostics = await buildContextDiagnostics(manifest, context, scannedContext, manifestRoot);
+
+  return {
+    tool: {
+      name: TOOL_NAME,
+      version: VERSION,
+    },
+    root,
+    workspaceRoot: options.workspaceRoot ? manifestRoot : undefined,
+    manifestRoot,
+    manifestPath: manifest.path,
+    generatedAt: new Date().toISOString(),
+    context,
+    roleSummary,
+    diagnostics,
+    summary: {
+      contextSources: context?.instructionFiles.length ?? 0,
+      roles: roleSummary.length,
+      validationCommands: context?.validationCommands.length ?? 0,
+      safetyRules: context?.safetyRules.length ?? 0,
+      diagnostics: diagnostics.length,
+    },
+  };
+}
+
 export function formatVerificationManifestValidationResult(
   result: VerificationManifestValidationResult,
   format: "text" | "json" | "markdown",
@@ -500,6 +568,73 @@ export function formatVerificationManifestExplainResult(
   lines.push(`Changed files: ${result.changedFiles.length}`);
   lines.push(`Matches: ${result.matches.length}`);
   appendExplainMatches(lines, result.matches, "text");
+  return `${lines.join("\n")}\n`;
+}
+
+export function formatVerificationManifestContextResult(
+  result: VerificationManifestContextResult,
+  format: "text" | "json" | "markdown",
+): string {
+  if (format === "json") {
+    return `${JSON.stringify(result, null, 2)}\n`;
+  }
+
+  const context = result.context;
+  const lines: string[] = [];
+  if (format === "markdown") {
+    lines.push("# CodeWard Manifest Context", "");
+    lines.push(`- Root: \`${escapeMarkdownInline(result.root)}\``);
+    if (result.workspaceRoot) {
+      lines.push(`- Workspace root: \`${escapeMarkdownInline(result.workspaceRoot)}\``);
+    }
+    lines.push(`- Manifest root: \`${escapeMarkdownInline(result.manifestRoot)}\``);
+    lines.push(`- Manifest: ${result.manifestPath ? `\`${escapeMarkdownInline(result.manifestPath)}\`` : "not found"}`);
+    lines.push(`- Context sources: ${result.summary.contextSources}`);
+    lines.push(`- Roles: ${result.summary.roles}`);
+    lines.push(`- Validation commands: ${result.summary.validationCommands}`);
+    lines.push(`- Safety rules: ${result.summary.safetyRules}`);
+    lines.push(`- Diagnostics: ${result.summary.diagnostics}`);
+    lines.push("");
+
+    if (!context) {
+      lines.push("No repo-local context sources were found.", "");
+      appendContextDiagnostics(lines, result.diagnostics, "markdown");
+      return lines.join("\n");
+    }
+
+    appendContextRoleSummary(lines, result.roleSummary, "markdown");
+    appendContextSources(lines, context.instructionFiles, "markdown");
+    appendContextValues(lines, "Validation Commands", context.validationCommands, "markdown");
+    appendContextValues(lines, "Safety Rules", context.safetyRules, "markdown");
+    appendContextDiagnostics(lines, result.diagnostics, "markdown");
+    return lines.join("\n");
+  }
+
+  lines.push("CodeWard Manifest Context");
+  lines.push(`Root: ${result.root}`);
+  if (result.workspaceRoot) {
+    lines.push(`Workspace root: ${result.workspaceRoot}`);
+  }
+  lines.push(`Manifest root: ${result.manifestRoot}`);
+  lines.push(`Manifest: ${result.manifestPath ?? "not found"}`);
+  lines.push(`Context sources: ${result.summary.contextSources}`);
+  lines.push(`Roles: ${result.summary.roles}`);
+  lines.push(`Validation commands: ${result.summary.validationCommands}`);
+  lines.push(`Safety rules: ${result.summary.safetyRules}`);
+  lines.push(`Diagnostics: ${result.summary.diagnostics}`);
+  lines.push("");
+
+  if (!context) {
+    lines.push("No repo-local context sources were found.");
+    appendContextDiagnostics(lines, result.diagnostics, "text");
+    return `${lines.join("\n")}\n`;
+  }
+
+  appendContextRoleSummary(lines, result.roleSummary, "text");
+  appendContextSources(lines, context.instructionFiles, "text");
+  appendContextValues(lines, "Validation Commands", context.validationCommands, "text");
+  appendContextValues(lines, "Safety Rules", context.safetyRules, "text");
+  appendContextDiagnostics(lines, result.diagnostics, "text");
   return `${lines.join("\n")}\n`;
 }
 
@@ -858,6 +993,298 @@ function appendGuidanceList(
   for (const value of values.slice(0, 4)) {
     lines.push(`  - ${value}`);
   }
+}
+
+function appendContextRoleSummary(
+  lines: string[],
+  roleSummary: VerificationManifestContextRoleSummary[],
+  format: "text" | "markdown",
+): void {
+  if (format === "markdown") {
+    lines.push("## Role Summary", "");
+    if (roleSummary.length === 0) {
+      lines.push("No context roles were classified.", "");
+      return;
+    }
+    for (const item of roleSummary) {
+      lines.push(
+        `- \`${escapeMarkdownInline(item.role)}\`: ${item.sources
+          .map((source) => `\`${escapeMarkdownInline(source)}\``)
+          .join(", ")}`,
+      );
+    }
+    lines.push("");
+    return;
+  }
+
+  lines.push("Role Summary");
+  if (roleSummary.length === 0) {
+    lines.push("- No context roles were classified.");
+    lines.push("");
+    return;
+  }
+  for (const item of roleSummary) {
+    lines.push(`- ${item.role}: ${item.sources.join(", ")}`);
+  }
+  lines.push("");
+}
+
+function appendContextSources(
+  lines: string[],
+  instructionFiles: VerificationManifestInstructionFile[],
+  format: "text" | "markdown",
+): void {
+  if (format === "markdown") {
+    lines.push("## Context Sources", "");
+    if (instructionFiles.length === 0) {
+      lines.push("No instruction, runbook, ADR, goal, or context files were captured.", "");
+      return;
+    }
+    for (const file of instructionFiles) {
+      lines.push(`### \`${escapeMarkdownInline(file.path)}\``);
+      lines.push(`- Kind: \`${escapeMarkdownInline(file.kind)}\``);
+      lines.push(`- Confidence: \`${escapeMarkdownInline(file.confidence)}\``);
+      lines.push(
+        `- Roles: ${
+          file.roles.length > 0
+            ? file.roles.map((role) => `\`${escapeMarkdownInline(role)}\``).join(", ")
+            : "none"
+        }`,
+      );
+      lines.push(
+        `- Signals: ${
+          file.signals.length > 0
+            ? file.signals.map((signal) => `\`${escapeMarkdownInline(signal)}\``).join(", ")
+            : "none"
+        }`,
+      );
+      lines.push("");
+    }
+    return;
+  }
+
+  lines.push("Context Sources");
+  if (instructionFiles.length === 0) {
+    lines.push("- No instruction, runbook, ADR, goal, or context files were captured.");
+    lines.push("");
+    return;
+  }
+  for (const file of instructionFiles) {
+    lines.push(`- ${file.path}`);
+    lines.push(`  Kind: ${file.kind}`);
+    lines.push(`  Confidence: ${file.confidence}`);
+    lines.push(`  Roles: ${file.roles.length > 0 ? file.roles.join(", ") : "none"}`);
+    lines.push(`  Signals: ${file.signals.length > 0 ? file.signals.join(", ") : "none"}`);
+  }
+  lines.push("");
+}
+
+function appendContextValues(
+  lines: string[],
+  title: string,
+  values: string[],
+  format: "text" | "markdown",
+): void {
+  if (format === "markdown") {
+    lines.push(`## ${title}`, "");
+    if (values.length === 0) {
+      lines.push("None detected.", "");
+      return;
+    }
+    for (const value of values) {
+      lines.push(`- \`${escapeMarkdownInline(value)}\``);
+    }
+    lines.push("");
+    return;
+  }
+
+  lines.push(title);
+  if (values.length === 0) {
+    lines.push("- None detected.");
+    lines.push("");
+    return;
+  }
+  for (const value of values) {
+    lines.push(`- ${value}`);
+  }
+  lines.push("");
+}
+
+function appendContextDiagnostics(
+  lines: string[],
+  diagnostics: VerificationManifestValidationIssue[],
+  format: "text" | "markdown",
+): void {
+  if (format === "markdown") {
+    lines.push("## Diagnostics", "");
+    if (diagnostics.length === 0) {
+      lines.push("No context diagnostics.", "");
+      return;
+    }
+    for (const item of diagnostics) {
+      lines.push(`- [${item.severity}] \`${escapeMarkdownInline(item.path)}\`: ${escapeMarkdownInline(item.message)}`);
+      lines.push(`  - Fix: ${escapeMarkdownInline(item.recommendation)}`);
+    }
+    lines.push("");
+    return;
+  }
+
+  lines.push("Diagnostics");
+  if (diagnostics.length === 0) {
+    lines.push("- No context diagnostics.");
+    lines.push("");
+    return;
+  }
+  for (const item of diagnostics) {
+    lines.push(`- [${item.severity}] ${item.path}: ${item.message}`);
+    lines.push(`  Fix: ${item.recommendation}`);
+  }
+  lines.push("");
+}
+
+async function buildContextDiagnostics(
+  manifest: LoadedVerificationManifest,
+  context: VerificationManifestContext | undefined,
+  scannedContext: VerificationManifestContext | undefined,
+  manifestRoot: string,
+): Promise<VerificationManifestValidationIssue[]> {
+  const issues: VerificationManifestValidationIssue[] = [];
+  const manifestPath = manifest.path ?? defaultVerificationManifestPath;
+
+  if (!context || context.instructionFiles.length === 0) {
+    issues.push(
+      issue(
+        "warning",
+        `${manifestPath} > context`,
+        "No repo-local context sources were found.",
+        "Add CONTEXT.md, ADRs, QA runbooks, or local agent instruction docs, then run `codeward manifest init .` from the default branch.",
+      ),
+    );
+    return issues;
+  }
+
+  if (!manifest.path) {
+    issues.push(
+      issue(
+        "info",
+        defaultVerificationManifestPath,
+        "No verification manifest was found; this context report is a read-only preview.",
+        "Run `codeward manifest init .` from the default branch when this baseline should become team verification policy.",
+      ),
+    );
+  }
+
+  if (manifest.path && !manifest.context && scannedContext) {
+    issues.push(
+      issue(
+        "warning",
+        `${manifest.path} > context`,
+        "The manifest has no context section, but repo-local context files were detected.",
+        "Regenerate the manifest or manually add reviewed `context.instructionFiles` entries.",
+      ),
+    );
+  }
+
+  if (contextHasRole(context, "verification-rubric") && manifestCheckCount(manifest) === 0) {
+    issues.push(
+      issue(
+        "warning",
+        `${manifestPath} > flows`,
+        "Verification rubric context exists, but no manifest checks are declared.",
+        "Add flow checks or regenerate the baseline so rubric knowledge can shape E2E drafts.",
+      ),
+    );
+  }
+
+  if (contextHasRole(context, "test-runner") && context.validationCommands.length === 0) {
+    issues.push(
+      issue(
+        "warning",
+        `${manifestPath} > context.validationCommands`,
+        "Test runner context exists, but no validation commands were inferred.",
+        "Add explicit commands such as `pnpm test` to the context docs or manifest config.",
+      ),
+    );
+  }
+
+  if (contextHasRole(context, "safety-policy") && context.safetyRules.length === 0) {
+    issues.push(
+      issue(
+        "warning",
+        `${manifestPath} > context.safetyRules`,
+        "Safety policy context exists, but no safety rules were extracted.",
+        "Make no-write, no-publish, no-token, or approval rules explicit in short imperative sentences.",
+      ),
+    );
+  }
+
+  for (const file of context.instructionFiles) {
+    const sourcePath = path.resolve(manifestRoot, file.path);
+    if (!(await pathExists(sourcePath))) {
+      issues.push(
+        issue(
+          "warning",
+          `${manifestPath} > context.instructionFiles.${file.path}`,
+          "Context source no longer exists on disk.",
+          "Remove this source from the manifest or update the path after moving the document.",
+        ),
+      );
+      continue;
+    }
+    if (file.roles.length === 0) {
+      issues.push(
+        issue(
+          "info",
+          `${manifestPath} > context.instructionFiles.${file.path}.roles`,
+          "Context source has no classified role.",
+          "Add clearer headings or keep this source as advisory-only context.",
+        ),
+      );
+    }
+    if (file.roles.length > 5) {
+      issues.push(
+        issue(
+          "info",
+          `${manifestPath} > context.instructionFiles.${file.path}.roles`,
+          "Context source matches many roles and may be broad or noisy.",
+          "Split broad docs or move important QA rules into focused runbooks.",
+        ),
+      );
+    }
+  }
+
+  return issues;
+}
+
+function summarizeContextRoles(
+  context: VerificationManifestContext | undefined,
+): VerificationManifestContextRoleSummary[] {
+  if (!context) {
+    return [];
+  }
+  const sourcesByRole = new Map<VerificationManifestInstructionRole, string[]>();
+  for (const file of context.instructionFiles) {
+    for (const role of file.roles) {
+      sourcesByRole.set(role, [...(sourcesByRole.get(role) ?? []), file.path]);
+    }
+  }
+  return [...sourcesByRole.entries()]
+    .map(([role, sources]) => ({
+      role,
+      sources: uniqueStrings(sources).sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.role.localeCompare(right.role));
+}
+
+function contextHasRole(
+  context: VerificationManifestContext | undefined,
+  role: VerificationManifestInstructionRole,
+): boolean {
+  return context?.instructionFiles.some((file) => file.roles.includes(role)) ?? false;
+}
+
+function manifestCheckCount(manifest: VerificationManifest): number {
+  return manifest.flows.reduce((total, flow) => total + flow.checks.length, 0);
 }
 
 function buildManifestContext(

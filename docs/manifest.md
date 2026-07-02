@@ -9,6 +9,7 @@ The intended workflow for the first shared baseline is:
 ```sh
 git switch main
 git pull
+codeward manifest context .
 codeward manifest init .
 codeward manifest validate .
 ```
@@ -21,6 +22,8 @@ codeward e2e draft . --base origin/main --head HEAD --dry-run
 ```
 
 `manifest init` reads the current checkout on disk. It does not silently switch to the default branch, because changing a developer's branch or working tree would be surprising and unsafe. If the team wants the manifest to represent the default product baseline, run it from the default branch after pulling the latest changes.
+
+`manifest context` is the read-only preview step. It shows which repo-local documents CodeWard sees, how each source is classified, which validation commands and safety rules were extracted, and which manifest path should be reviewed if the context is missing or stale. Use it before `manifest init` when you want to understand the bootstrap input without writing `.codeward/manifest.yaml`.
 
 During baseline generation, CodeWard also looks for repo-local context documents that often contain verification knowledge not visible in source files:
 
@@ -130,6 +133,23 @@ Use this section to understand which repo-local documents influenced the baselin
 - `roles` explain how CodeWard classified a context source: product domain context, workflow lifecycle, verification rubric, test runner, safety policy, release policy, agent skill, or harness config.
 - instruction-derived context should start as `inferred` and should not override human-reviewed domains, flows, and checks.
 - if a recommendation is wrong because a context document is stale, update the document or remove the stale context source from the manifest.
+
+## Context Report
+
+Run `codeward manifest context .` to see the context layer without writing files:
+
+```sh
+codeward manifest context . --format markdown
+```
+
+The report includes:
+
+- role summary by source file, such as `verification-rubric`, `test-runner`, `agent-skill`, or `harness-config`
+- captured context sources with kind, confidence, roles, and signals
+- validation commands and safety rules extracted from local docs
+- diagnostics that point to the manifest path to edit when context is missing, stale, too broad, or not connected to checks
+
+This command is useful when an E2E recommendation feels too vague. Instead of asking an LLM to re-read the repository, inspect the report, correct the repo-local context or `.codeward/manifest.yaml`, then rerun `codeward e2e draft`.
 
 ## Minimal Example
 
