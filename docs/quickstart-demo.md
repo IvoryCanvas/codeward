@@ -32,6 +32,17 @@ pnpm dlx @ivorycanvas/codeward e2e draft . --base origin/main --head HEAD --dry-
 
 `--dry-run` is important for first contact. It lets maintainers preview the plan, draft path, readiness, and blockers without writing files.
 
+For a repository adopting CodeWard as team QA memory, start with the manifest loop:
+
+```sh
+pnpm dlx @ivorycanvas/codeward manifest context .
+pnpm dlx @ivorycanvas/codeward manifest init .
+pnpm dlx @ivorycanvas/codeward manifest validate .
+pnpm dlx @ivorycanvas/codeward manifest explain . --base origin/main --head HEAD
+```
+
+The manifest is the durable part. It lets a team correct domains, flows, anchors, and checks once, then reuse that correction across future PRs without re-explaining the same QA context to an LLM.
+
 ## What CodeWard Reads
 
 ```txt
@@ -41,7 +52,7 @@ Input
 - framework and route files
 - existing E2E runner config
 - stable selectors such as data-testid, aria-label, role text, placeholder text, and testID
-- optional team-owned context in .codeward/domains.yml and .codeward/flows.yml
+- optional team-owned context in .codeward/manifest.yaml, CONTEXT.md, ADRs, goals, QA runbooks, and agent instructions
 ```
 
 ## What CodeWard Returns
@@ -50,6 +61,7 @@ Input
 Output
 - changed domain language
 - candidate user flow
+- manifest evidence when a repo-local flow/check matches
 - recommended runner
 - draft file path
 - flow language brief
@@ -58,6 +70,8 @@ Output
 - required action items
 - blockers that explain why a draft is not ready yet
 ```
+
+The result should not stop at "selector needed" or "fixture needed." A useful CodeWard draft should say which flow changed, which test file would be generated, which checks it covers, why those checks were selected, and where to update the manifest if the recommendation is wrong.
 
 ## Markdown Preview
 

@@ -107,6 +107,20 @@ The manifest commands should show:
 - `manifest validate` status, issue counts, and concrete recommendations
 - `manifest explain` matches with confidence, entry route, required checks, evidence path, and update path
 
+## Golden Demo Acceptance Bar
+
+The public demo must prove the product shape, not only command execution. Before promoting a release, run or update a small demo where a realistic PR diff produces a concrete E2E starting point:
+
+- The output names the affected product feature and user flow in domain language.
+- The output names the draft file that would be created or previewed.
+- The draft includes route or screen entry, realistic actions, and at least one meaningful assertion.
+- The report explains why the test was recommended from changed files and manifest evidence.
+- The report names the manifest path to update if the recommendation is wrong.
+- Remaining gaps are specific, such as auth fixture, API mock, stable selector, runner config, or validation command.
+- The demo makes clear when output is `--dry-run`, `review-only`, `near-runnable`, or `runnable-candidate`.
+
+Avoid demos that only say broad phrases such as "fixture needed", "selector missing", or "Offer flow recommended" without showing why those gaps matter for the changed behavior.
+
 ## Current Fixture Evidence Matrix
 
 The matrix below is public, fixture-backed evidence from the repository test suite. It is not a substitute for final manual validation against real projects, but it proves the release bar with reproducible scenarios that can run in CI without an LLM call.

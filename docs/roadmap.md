@@ -6,13 +6,35 @@ CodeWard starts as a local CLI for repo-level AI agent readiness. The project ca
 
 CodeWard should become a local-first QA meta framework: it builds a repository-level verification manifest, maps PR changes to product domains, flows, anchors, and checks, and drafts the E2E, fixture, selector, and validation work needed to prove the changed behavior. The goal is not to replace reviewers or QA. The goal is to remove the repeated blank-page work that makes developers skip good verification.
 
+The sharp product position is:
+
+```txt
+Do not re-prompt AI for the same QA context.
+Capture team QA memory in the repo, map each PR to that memory, and generate a concrete E2E starting point.
+```
+
+This means CodeWard should be judged less like a generic test recorder and more like a manifest-backed PR verification assistant. A recorder captures what a person just clicked. CodeWard should explain what the PR changed, which durable flow/check knowledge applies, and what test artifact should now exist.
+
+## Release Bar
+
+Before treating the next public release as ready, the golden demo must satisfy these conditions:
+
+- First-run output is concrete, not broad: it names the affected feature, flow, draft file, and checks.
+- Manifest authoring burden stays low: `manifest context` and `manifest init` provide a useful baseline before a human edits YAML.
+- Generated E2E draft is a usable starting point: it has route/screen entry, meaningful actions, assertions, and clear TODOs only where repo data is missing.
+- Recommendation evidence is explainable: output shows the changed file, manifest flow/check, and manifest path to repair when wrong.
+- README demo shows the full loop: repo context, manifest baseline, PR mapping, E2E draft, and remaining validation gaps.
+- One manifest correction should improve future PR recommendations without another LLM prompt.
+
 ## Now
 
 - Keep the scanner fast, static, and easy to understand.
 - Keep the [`0.2.0` release validation checklist](release-validation.md), [manifest guide](manifest.md), and public [E2E output examples](e2e-output-examples.md) aligned with the current release bar.
 - Keep the [release runbook](releasing.md) ready for npm publishing and versioned GitHub Action follow-up.
-- Improve adoption docs and sample output so new maintainers can try CodeWard quickly.
+- Improve adoption docs and sample output so new maintainers understand the QA manifest plus PR-to-E2E draft loop quickly.
 - Stabilize the manifest feedback loop with `.codeward/manifest.yaml`, `manifest init`, `manifest validate`, `manifest explain`, JSON Schema, and manifest-driven E2E draft shaping.
+- Keep `manifest context` useful as a pre-init sanity check for repo-local QA memory, harness docs, agent instructions, and runbooks.
+- Improve generated drafts until the golden demo feels like a real starting point, not a generic checklist.
 - Make `verify` the best first-run experience for AI-assisted PRs.
 - Keep `eval` explainable enough that maintainers trust the score and know what to fix.
 - Keep expanding representative validation targets beyond JavaScript so planning advice works for Python, Go, Rust, and JVM repositories.

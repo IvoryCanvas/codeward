@@ -4,13 +4,26 @@
 [![npm version](https://img.shields.io/npm/v/@ivorycanvas/codeward.svg)](https://www.npmjs.com/package/@ivorycanvas/codeward)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**PR diff in. Domain-aware verification flows and E2E drafts out. No cloud. No LLM token.**
+**Stop re-prompting AI for QA context. CodeWard turns repo-local QA memory into PR-specific E2E drafts. No cloud. No LLM token.**
 
-CodeWard is a local-first CLI that reads git changes, repository structure, and optional team-owned manifests, then turns a branch into reviewable verification guidance and draft E2E tests.
+CodeWard is a local-first CLI that builds and uses a repository-level verification manifest, maps git changes to product domains, flows, and checks, then turns a branch into reviewable verification guidance and draft E2E tests.
 
 It is built for the moment when a reviewer asks: "This PR looks plausible, but which user flow could it break, and what should we test before merge?"
 
 CodeWard does not call an LLM API, upload source code, or require a service account. It runs in the repository you already have.
+
+The core loop is intentionally simple:
+
+```txt
+Repo QA memory
+  -> .codeward/manifest.yaml
+
+PR diff
+  -> impacted domain / flow / check
+
+CodeWard output
+  -> explainable E2E draft + fixture, selector, and validation gaps
+```
 
 ## Install & Quick Start
 
@@ -26,6 +39,18 @@ Run the first local scan:
 
 ```sh
 pnpm exec codeward scan .
+```
+
+Preview the repo-local QA context CodeWard can see:
+
+```sh
+pnpm exec codeward manifest context .
+```
+
+Create a reviewable verification manifest from the branch you want to treat as baseline:
+
+```sh
+pnpm exec codeward manifest init .
 ```
 
 Preview PR-specific E2E drafts without writing files:
@@ -117,6 +142,21 @@ test("Checkout purchase", async ({ page }) => {
 
 See [docs/quickstart-demo.md](docs/quickstart-demo.md) for a compact walkthrough, [docs/manifest.md](docs/manifest.md) for the verification manifest loop, and [docs/e2e-output-examples.md](docs/e2e-output-examples.md) for more output shapes.
 
+## Why This Is Different
+
+Recorders such as browser or mobile test studios are useful when you already know the flow to exercise. CodeWard starts one step earlier: it asks what the PR changed, which repo-owned QA memory applies, and what test artifact should exist before merge.
+
+A good CodeWard result should answer:
+
+- which product flow changed
+- which manifest domain, flow, and checks caused the recommendation
+- which draft test file was generated or previewed
+- which success, failure, edge, contract, or visual cases the draft covers
+- which selector, fixture, auth, runner, or validation gaps still block trusted regression evidence
+- which manifest path to edit when the recommendation is wrong
+
+That is the product bet: one human correction to the repo-local manifest should improve future PR recommendations without another LLM prompt.
+
 ## What CodeWard Is For
 
 CodeWard is intentionally small:
@@ -153,6 +193,8 @@ CodeWard는 AI 코딩 에이전트에게 레포지토리를 맡기기 전에 빠
 ```sh
 pnpm exec codeward scan .
 pnpm exec codeward verify . --base origin/main --head HEAD --pr-body-file pr-body.md
+pnpm exec codeward manifest context .
+pnpm exec codeward manifest init .
 pnpm exec codeward manifest validate .
 pnpm exec codeward manifest explain . --base origin/main --head HEAD
 pnpm exec codeward e2e draft . --base origin/main --head HEAD --dry-run
