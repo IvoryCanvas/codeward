@@ -4246,6 +4246,95 @@ test("manifest bootstrap produces concrete PR E2E draft from repo QA memory", as
   assert.match(spec, /Checkout Purchase handles failed, empty, or unauthorized responses/);
 });
 
+test("e2e draft can use an external verification manifest for read-only adoption preview", async () => {
+  const root = await makeTempRepo();
+  const manifestOutputRoot = await mkdtemp(path.join(tmpdir(), "codeward-external-manifest-"));
+  const manifestPath = path.join(manifestOutputRoot, "manifest.yaml");
+  await initGitRepo(root);
+  await mkdir(path.join(root, "src/pages/checkout"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        dev: "vite --host 127.0.0.1",
+        "test:e2e": "playwright test",
+      },
+      dependencies: {
+        "@playwright/test": "^1.56.0",
+        next: "^15.0.0",
+        react: "^19.0.0",
+      },
+    }),
+  );
+  await writeFile(path.join(root, "playwright.config.ts"), "export default { use: { baseURL: 'http://127.0.0.1:4173' } };\n");
+  await writeFile(
+    path.join(root, "src/pages/checkout/index.tsx"),
+    [
+      "export default function CheckoutPage() {",
+      "  return <main>",
+      "    <label>Email<input placeholder=\"Email\" /></label>",
+      "    <button data-testid=\"checkout-submit\">Complete purchase</button>",
+      "  </main>;",
+      "}",
+    ].join("\n"),
+  );
+
+  await writeVerificationManifestBaseline(root, { write: manifestPath });
+  const loadedManifest = await loadVerificationManifest(root, { manifestPath });
+  assert.ok(loadedManifest.path?.endsWith("/manifest.yaml"));
+  assert.equal(loadedManifest.flows.some((flow) => flow.entry?.route === "/checkout"), true);
+
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "baseline checkout"]);
+  await git(root, ["branch", "-M", "main"]);
+  await git(root, ["switch", "-c", "feature/checkout-copy"]);
+  await writeFile(
+    path.join(root, "src/pages/checkout/index.tsx"),
+    [
+      "export default function CheckoutPage() {",
+      "  return <main>",
+      "    <label>Email<input placeholder=\"Email\" /></label>",
+      "    <button data-testid=\"checkout-submit\">Complete purchase now</button>",
+      "    <p>Order confirmed</p>",
+      "  </main>;",
+      "}",
+    ].join("\n"),
+  );
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "update checkout copy"]);
+
+  const draft = await generateE2eDraft(root, {
+    base: "main",
+    head: "HEAD",
+    dryRun: true,
+    runner: "playwright",
+    manifestPath,
+  });
+  const manifestDraft = draft.files.find((file) => file.source === "verification-manifest");
+
+  assert.ok(manifestDraft);
+  assert.equal(manifestDraft.promotionStatus, "commit-candidate");
+  assert.match(formatMarkdownE2eDraft(draft), /Verification manifest/);
+  assert.match(formatMarkdownE2eDraft(draft), /manifest\.yaml/);
+
+  const cliDraftOutput = await execFileAsync(process.execPath, [
+    cliPath,
+    "e2e",
+    "draft",
+    root,
+    "--manifest",
+    manifestPath,
+    "--base",
+    "main",
+    "--head",
+    "HEAD",
+    "--dry-run",
+    "--json",
+  ]);
+  const cliDraft = JSON.parse(cliDraftOutput.stdout);
+  assert.equal(cliDraft.files.some((file) => file.source === "verification-manifest"), true);
+});
+
 test("manifest init keeps Expo app file domains specific", async () => {
   const root = await makeTempRepo();
   await mkdir(path.join(root, "app"), { recursive: true });

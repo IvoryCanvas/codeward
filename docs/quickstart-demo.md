@@ -41,6 +41,13 @@ pnpm dlx @ivorycanvas/codeward manifest validate .
 pnpm dlx @ivorycanvas/codeward manifest explain . --base origin/main --head HEAD
 ```
 
+For a read-only smoke test against a repository you do not want to modify, keep the manifest outside the repo and pass it back into the PR commands:
+
+```sh
+pnpm dlx @ivorycanvas/codeward manifest init . --write /tmp/codeward-manifest.yaml
+pnpm dlx @ivorycanvas/codeward e2e draft . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD --dry-run
+```
+
 The manifest is the durable part. It lets a team correct domains, flows, anchors, and checks once, then reuse that correction across future PRs without re-explaining the same QA context to an LLM.
 
 ## Manifest-Backed PoC Path

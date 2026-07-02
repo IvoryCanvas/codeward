@@ -13,6 +13,7 @@ import { TOOL_NAME, VERSION } from "./version.js";
 
 export interface VerifyOptions extends EvalOptions {
   scanOptions?: ScanOptions;
+  manifestPath?: string;
 }
 
 export interface VerifyResult {
@@ -51,7 +52,7 @@ export async function verifyChange(rootInput: string, options: VerifyOptions = {
     validationCommands: options.validationCommands,
   });
   const manifestRoot = evaluation.workspaceRoot ?? evaluation.root;
-  const verificationManifest = await loadVerificationManifest(manifestRoot);
+  const verificationManifest = await loadVerificationManifest(manifestRoot, { manifestPath: options.manifestPath });
   const manifestChangedFiles = changedFilesRelativeToManifestRoot(evaluation.changedFiles, evaluation.root, manifestRoot);
   const verificationManifestMatches = matchVerificationManifest(verificationManifest, manifestChangedFiles);
 

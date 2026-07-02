@@ -69,6 +69,13 @@ git add .codeward/manifest.yaml
 git commit -m "Add CodeWard verification manifest"
 ```
 
+Preview adoption without writing a manifest into the target repository:
+
+```sh
+pnpm exec codeward manifest init . --write /tmp/codeward-manifest.yaml
+pnpm exec codeward e2e draft . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD --dry-run
+```
+
 Or run CodeWard once without adding a dependency:
 
 ```sh

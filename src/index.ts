@@ -161,6 +161,7 @@ export type {
   VerificationManifestInstructionFile,
   VerificationManifestInstructionKind,
   VerificationManifestInstructionRole,
+  VerificationManifestLoadOptions,
   VerificationManifestExplainOptions,
   VerificationManifestExplainResult,
   VerificationManifestMatch,

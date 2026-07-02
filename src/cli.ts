@@ -76,6 +76,7 @@ interface ParsedOptions {
   prBodyFile?: string;
   includeWorkingTree?: boolean;
   e2eRunner?: E2eRunnerName;
+  manifestPath?: string;
   recordHistory?: boolean;
   dryRun?: boolean;
 }
@@ -148,6 +149,7 @@ async function main(argv: string[]): Promise<number> {
       includeWorkingTree: options.includeWorkingTree,
       prBodyFile: options.prBodyFile,
       validationCommands: loadedConfig.config.validationCommands,
+      manifestPath: options.manifestPath,
     });
     const output = formatVerifyOutput(result, options.format ?? (options.json ? "json" : "markdown"));
     await printOrWrite(output, options.output);
@@ -229,6 +231,7 @@ async function main(argv: string[]): Promise<number> {
       includeWorkingTree: options.includeWorkingTree,
       validationCommands: loadedConfig.config.validationCommands,
       runner: options.e2eRunner,
+      manifestPath: options.manifestPath,
     };
     if (subcommand === "plan") {
       const result = await generateE2ePlan(options.path, e2eOptions);
@@ -391,7 +394,7 @@ async function main(argv: string[]): Promise<number> {
     }
     const options = parseOptions(subcommandRest);
     if (subcommand === "validate") {
-      const result = await validateVerificationManifest(options.path, options.workspaceRoot);
+      const result = await validateVerificationManifest(options.path, options.workspaceRoot, options.manifestPath);
       const format = manifestCommandFormat(options.format ?? (options.json ? "json" : "text"));
       await printOrWrite(formatVerificationManifestValidationResult(result, format), options.output);
       return result.status === "invalid" || result.status === "missing" ? 1 : 0;
@@ -404,6 +407,7 @@ async function main(argv: string[]): Promise<number> {
         workspaceRoot: options.workspaceRoot,
         includeWorkingTree: options.includeWorkingTree,
         validationCommands: loadedConfig.config.validationCommands,
+        manifestPath: options.manifestPath,
       });
       const format = manifestCommandFormat(options.format ?? (options.json ? "json" : "markdown"));
       await printOrWrite(formatVerificationManifestExplainResult(result, format), options.output);
@@ -513,6 +517,11 @@ function parseOptions(args: string[]): ParsedOptions {
 
     if (arg === "--workspace-root") {
       options.workspaceRoot = readValue(args, ++index, arg);
+      continue;
+    }
+
+    if (arg === "--manifest") {
+      options.manifestPath = readValue(args, ++index, arg);
       continue;
     }
 
@@ -844,16 +853,16 @@ Usage:
   codeward report [path] [--format <format>] [--output <file>] [--fail-on <severity>]
   codeward doctor [path] [--format <format>] [--output <file>] [--fail-on <severity>]
   codeward review [path] [--base <ref>] [--head <ref>] [--format <format>] [--fail-on <severity>]
-  codeward verify [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--pr-body-file <file>] [--fail-on <severity>]
+  codeward verify [path] [--workspace-root <path>] [--manifest <file>] [--base <ref>] [--head <ref>] [--include-working-tree] [--pr-body-file <file>] [--fail-on <severity>]
   codeward eval [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--pr-body-file <file>] [--format <format>]
   codeward github-action [path] [--mode auto|scan|review] [--base <ref>] [--head <ref>] [--fail-on <severity>]
   codeward test-plan [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format <format>] [--output <file>]
-  codeward e2e plan [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--record-history] [--format <format>]
+  codeward e2e plan [path] [--workspace-root <path>] [--manifest <file>] [--base <ref>] [--head <ref>] [--include-working-tree] [--record-history] [--format <format>]
   codeward e2e setup [path] [--workspace-root <path>] [--runner maestro|playwright] [--force]
-  codeward e2e draft [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--runner maestro|playwright|manual] [--output <dir>] [--dry-run] [--force]
+  codeward e2e draft [path] [--workspace-root <path>] [--manifest <file>] [--base <ref>] [--head <ref>] [--runner maestro|playwright|manual] [--output <dir>] [--dry-run] [--force]
   codeward manifest init [path] [--workspace-root <path>] [--write <file>] [--max-files <n>] [--force]
-  codeward manifest validate [path] [--workspace-root <path>] [--format <format>]
-  codeward manifest explain [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format <format>]
+  codeward manifest validate [path] [--workspace-root <path>] [--manifest <file>] [--format <format>]
+  codeward manifest explain [path] [--workspace-root <path>] [--manifest <file>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format <format>]
   codeward flows init [path] [--write <file>] [--force]
   codeward flows suggest [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format <format>] [--output <file>] [--write <file>] [--force]
   codeward domains init [path] [--write <file>] [--force]
@@ -884,6 +893,7 @@ Examples:
   codeward e2e plan . --base origin/main --head HEAD --record-history
   codeward e2e setup . --runner playwright
   codeward e2e draft . --base origin/main --head HEAD --dry-run
+  codeward e2e draft . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD --dry-run
   codeward manifest init .
   codeward manifest explain . --base origin/main --head HEAD
   codeward flows init .
@@ -904,17 +914,19 @@ Repository-level verification manifest.
 
 Usage:
   codeward manifest init [path] [--workspace-root <path>] [--write <file>] [--max-files <n>] [--force] [--format json] [--output <file>]
-  codeward manifest validate [path] [--workspace-root <path>] [--format text|json|markdown] [--output <file>]
+  codeward manifest validate [path] [--workspace-root <path>] [--manifest <file>] [--format text|json|markdown] [--output <file>]
   codeward manifest context [path] [--workspace-root <path>] [--max-files <n>] [--format text|json|markdown] [--output <file>]
-  codeward manifest explain [path] [--workspace-root <path>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format text|json|markdown] [--output <file>]
+  codeward manifest explain [path] [--workspace-root <path>] [--manifest <file>] [--base <ref>] [--head <ref>] [--include-working-tree] [--format text|json|markdown] [--output <file>]
 
 Examples:
   codeward manifest init .
   codeward manifest init services/offer --workspace-root .
   codeward manifest init . --write .codeward/manifest.yaml --force
+  codeward manifest init . --write /tmp/codeward-manifest.yaml
   codeward manifest validate .
+  codeward manifest validate . --manifest /tmp/codeward-manifest.yaml
   codeward manifest context .
-  codeward manifest explain . --base origin/main --head HEAD
+  codeward manifest explain . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD
 `);
 }
 

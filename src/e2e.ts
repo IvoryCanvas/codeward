@@ -65,6 +65,7 @@ export type E2eSelectorKind =
 
 export interface E2ePlanOptions extends TestPlanOptions {
   runner?: E2eRunnerName;
+  manifestPath?: string;
 }
 
 export interface E2eDraftOptions extends E2ePlanOptions {
@@ -428,7 +429,7 @@ export async function generateE2ePlan(rootInput: string, options: E2ePlanOptions
   const coreFlows = matchCoreFlows(coreFlowManifest, coreFlowChangedFiles);
   const domainManifest = await loadDomainManifest(coreFlowRoot);
   const domains = matchDomains(domainManifest, coreFlowChangedFiles);
-  const verificationManifest = await loadVerificationManifest(coreFlowRoot);
+  const verificationManifest = await loadVerificationManifest(coreFlowRoot, { manifestPath: options.manifestPath });
   const verificationManifestMatches = matchVerificationManifest(verificationManifest, coreFlowChangedFiles);
   const domainLanguage = await buildDomainLanguageSummary(root, testPlan.changedFiles, coreFlows, domains);
   const workspaceTargets = await buildWorkspaceTargets(root, testPlan);

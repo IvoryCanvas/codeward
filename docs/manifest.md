@@ -21,6 +21,15 @@ codeward manifest explain . --base origin/main --head HEAD
 codeward e2e draft . --base origin/main --head HEAD --dry-run
 ```
 
+Or preview adoption without writing `.codeward/manifest.yaml` into the target repository:
+
+```sh
+codeward manifest init . --write /tmp/codeward-manifest.yaml
+codeward manifest validate . --manifest /tmp/codeward-manifest.yaml
+codeward manifest explain . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD
+codeward e2e draft . --manifest /tmp/codeward-manifest.yaml --base origin/main --head HEAD --dry-run
+```
+
 `manifest init` reads the current checkout on disk. It does not silently switch to the default branch, because changing a developer's branch or working tree would be surprising and unsafe. If the team wants the manifest to represent the default product baseline, run it from the default branch after pulling the latest changes.
 
 `manifest context` is the read-only preview step. It shows which repo-local documents CodeWard sees, how each source is classified, which validation commands and safety rules were extracted, and which manifest path should be reviewed if the context is missing or stale. Use it before `manifest init` when you want to understand the bootstrap input without writing `.codeward/manifest.yaml`.

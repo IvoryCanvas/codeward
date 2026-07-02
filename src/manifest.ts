@@ -109,6 +109,10 @@ export interface LoadedVerificationManifest extends VerificationManifest {
   path?: string;
 }
 
+export interface VerificationManifestLoadOptions {
+  manifestPath?: string;
+}
+
 export interface VerificationManifestInitOptions {
   workspaceRoot?: string;
   write?: string;
@@ -185,7 +189,9 @@ export interface VerificationManifestValidationResult {
   issues: VerificationManifestValidationIssue[];
 }
 
-export interface VerificationManifestExplainOptions extends TestPlanOptions {}
+export interface VerificationManifestExplainOptions extends TestPlanOptions {
+  manifestPath?: string;
+}
 
 export interface VerificationManifestExplainResult {
   tool: {
@@ -243,9 +249,12 @@ const manifestCandidates = [
 
 const defaultMaxManifestFiles = 2500;
 
-export async function loadVerificationManifest(rootInput: string): Promise<LoadedVerificationManifest> {
+export async function loadVerificationManifest(
+  rootInput: string,
+  options: VerificationManifestLoadOptions = {},
+): Promise<LoadedVerificationManifest> {
   const root = path.resolve(rootInput);
-  const manifestPath = await findVerificationManifestPath(root);
+  const manifestPath = options.manifestPath ? path.resolve(options.manifestPath) : await findVerificationManifestPath(root);
   if (!manifestPath) {
     return { version: 1, domains: [], flows: [] };
   }
@@ -253,7 +262,7 @@ export async function loadVerificationManifest(rootInput: string): Promise<Loade
   const raw = await fs.readFile(manifestPath, "utf8");
   const parsed = parseVerificationManifest(raw, manifestPath);
   return {
-    path: toPosixPath(path.relative(root, manifestPath)),
+    path: displayManifestPath(root, manifestPath),
     ...normalizeVerificationManifest(parsed, manifestPath),
   };
 }
@@ -396,14 +405,18 @@ export function formatVerificationManifestInitResult(result: VerificationManifes
   ].join("\n");
 }
 
-export async function validateVerificationManifest(rootInput: string, workspaceRootInput?: string): Promise<VerificationManifestValidationResult> {
+export async function validateVerificationManifest(
+  rootInput: string,
+  workspaceRootInput?: string,
+  manifestPathInput?: string,
+): Promise<VerificationManifestValidationResult> {
   const root = path.resolve(rootInput);
   const manifestRoot = path.resolve(workspaceRootInput ?? rootInput);
   const issues: VerificationManifestValidationIssue[] = [];
   let manifest: LoadedVerificationManifest;
 
   try {
-    manifest = await loadVerificationManifest(manifestRoot);
+    manifest = await loadVerificationManifest(manifestRoot, { manifestPath: manifestPathInput });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     issues.push(issue("error", defaultVerificationManifestPath, message, "Fix the manifest syntax or schema, then run `codeward manifest validate` again."));
@@ -434,7 +447,7 @@ export async function explainVerificationManifest(
 ): Promise<VerificationManifestExplainResult> {
   const testPlan = await generateTestPlan(rootInput, options);
   const manifestRoot = testPlan.workspaceRoot ?? testPlan.root;
-  const manifest = await loadVerificationManifest(manifestRoot);
+  const manifest = await loadVerificationManifest(manifestRoot, { manifestPath: options.manifestPath });
   const manifestChangedFiles = changedFilesRelativeToManifestRoot(testPlan.changedFiles, testPlan.root, manifestRoot);
   return {
     tool: {
@@ -2051,6 +2064,14 @@ async function findVerificationManifestPath(root: string): Promise<string | unde
     }
   }
   return undefined;
+}
+
+function displayManifestPath(root: string, manifestPath: string): string {
+  const relative = path.relative(root, manifestPath);
+  if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return toPosixPath(relative);
+  }
+  return toPosixPath(manifestPath);
 }
 
 function parseVerificationManifest(raw: string, manifestPath: string): unknown {
